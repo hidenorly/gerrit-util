@@ -1,12 +1,19 @@
+import os
 import subprocess
 import json
 import argparse
+import shutil
 from datetime import datetime, timedelta
 from gerrit_query import GerritUtil
 
-def download_git(base_dir, id, download_cmd):
-    # Create the target folder
+def download_git(base_dir, id, download_cmd, force_renew = False):
     target_folder = os.path.join(base_dir, str(id))
+
+    # remove folder if force_renew
+    if force_renew and os.path.exists(target_folder):
+            shutil.rmtree(target_folder)
+
+    # ensure target_folder
     os.makedirs(target_folder, exist_ok=True)
     current_dir = target_folder
 
@@ -30,6 +37,7 @@ def main():
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-d', '--download', default='.', help='Specify download path')
+    parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     args = parser.parse_args()
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since)
@@ -41,7 +49,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                GerritUtil.download(args.download, _data["id]"], _data["patchset1_ssh"])
+                GerritUtil.download(args.download, _data["id]"], _data["patchset1_ssh"], args.renew)
 
 if __name__ == "__main__":
     main()
