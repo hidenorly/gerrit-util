@@ -14,35 +14,33 @@
 
 import os
 import subprocess
-import json
 import argparse
 import shutil
 from datetime import datetime, timedelta
 from gerrit_query import GerritUtil
 
-def download_git(base_dir, id, download_cmd, force_renew = False):
-    target_folder = os.path.join(base_dir, str(id))
+class GitUtil:
+    def download_git(base_dir, id, download_cmd, force_renew = False):
+        target_folder = os.path.join(base_dir, str(id))
 
-    # remove folder if force_renew
-    if force_renew and os.path.exists(target_folder):
-            shutil.rmtree(target_folder)
+        # remove folder if force_renew
+        if force_renew and os.path.exists(target_folder):
+                shutil.rmtree(target_folder)
 
-    # ensure target_folder
-    os.makedirs(target_folder, exist_ok=True)
-    current_dir = target_folder
+        # ensure target_folder
+        os.makedirs(target_folder, exist_ok=True)
+        current_dir = target_folder
 
-    commands = download_cmd.split(';')
-    for command in commands:
-        command = command.strip()
-        if command.startswith('cd'):
-            # Change directory command
-            new_dir = command[3:].strip()
-            current_dir = os.path.join(current_dir, new_dir)
-        else:
-            # Execute other commands
-            subprocess.run(command, shell=True, check=True, cwd=current_dir)
-
-GerritUtil.download_git = download_git
+        commands = download_cmd.split(';')
+        for command in commands:
+            command = command.strip()
+            if command.startswith('cd'):
+                # Change directory command
+                new_dir = command[3:].strip()
+                current_dir = os.path.join(current_dir, new_dir)
+            else:
+                # Execute other commands
+                subprocess.run(command, shell=True, check=True, cwd=current_dir)
 
 def main():
     parser = argparse.ArgumentParser(description='Download gerrit patch')
@@ -63,7 +61,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                GerritUtil.download(args.download, _data["id]"], _data["patchset1_ssh"], args.renew)
+                GitUtil.download(args.download, _data["id]"], _data["patchset1_ssh"], args.renew)
 
 if __name__ == "__main__":
     main()
