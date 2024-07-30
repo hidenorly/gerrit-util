@@ -68,6 +68,8 @@ class GerritUtil:
                     id = str(data[('number')])
                     url = data['url']
                     pos = url.find("/c/")
+                    pos2 = project.rfind("/")
+                    project_dir = project[pos2+1:]
                     theData = {
                         "number": id,
                         "subject": data['subject'],

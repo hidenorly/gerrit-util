@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from gerrit_query import GerritUtil
 
 class GitUtil:
-    def download_git(base_dir, id, download_cmd, force_renew = False):
+    def download(base_dir, id, download_cmd, force_renew = False):
         target_folder = os.path.join(base_dir, str(id))
 
         # remove folder if force_renew
@@ -40,7 +40,10 @@ class GitUtil:
                 current_dir = os.path.join(current_dir, new_dir)
             else:
                 # Execute other commands
-                subprocess.run(command, shell=True, check=True, cwd=current_dir)
+                try:
+                    subprocess.run(command, shell=True, check=True, cwd=current_dir)
+                except:
+                    pass
 
 def main():
     parser = argparse.ArgumentParser(description='Download gerrit patch')
@@ -61,7 +64,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                GitUtil.download(args.download, _data["id]"], _data["patchset1_ssh"], args.renew)
+                GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
 
 if __name__ == "__main__":
     main()
