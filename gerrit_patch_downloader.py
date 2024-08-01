@@ -25,7 +25,7 @@ class GitUtil:
 
         # remove folder if force_renew
         if force_renew and os.path.exists(target_folder):
-                shutil.rmtree(target_folder)
+            shutil.rmtree(target_folder)
 
         # ensure target_folder
         os.makedirs(target_folder, exist_ok=True)
@@ -45,10 +45,12 @@ class GitUtil:
                 except:
                     pass
 
+        return target_folder
+
 def main():
     parser = argparse.ArgumentParser(description='Download gerrit patch')
-    parser.add_argument('-t', '--target', default='gerrit-ssh', help='Specify ssh target host')
-    parser.add_argument('-b', '--branch', default='main', help='Branch to query')
+    parser.add_argument('-t', '--target', default=os.getenv("GERRIT_HOST", 'gerrit-ssh'), help='Specify ssh target host')
+    parser.add_argument('-b', '--branch', default=os.getenv("GERRIT_BRANCH", 'main'), help='Branch to query')
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-d', '--download', default='.', help='Specify download path')

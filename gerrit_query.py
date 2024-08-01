@@ -90,8 +90,8 @@ class GerritUtil:
 
 def main():
     parser = argparse.ArgumentParser(description='Query Gerrit and parse results')
-    parser.add_argument('-t', '--target', default='gerrit-ssh', help='Specify ssh target host')
-    parser.add_argument('-b', '--branch', default='main', help='Branch to query')
+    parser.add_argument('-t', '--target', default=os.getenv("GERRIT_HOST", 'gerrit-ssh'), help='Specify ssh target host')
+    parser.add_argument('-b', '--branch', default=os.getenv("GERRIT_BRANCH", 'main'), help='Branch to query')
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     args = parser.parse_args()
