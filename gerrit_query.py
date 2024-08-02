@@ -12,6 +12,7 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+import os
 import subprocess
 import json
 import argparse
@@ -72,10 +73,12 @@ class GerritUtil:
                     project_dir = project[pos2+1:]
                     theData = {
                         "number": id,
+                        "Change-Id": data['id'],
                         "subject": data['subject'],
                         "status": data['status'],
                         "url": data['url'],
                         "Created": datetime.fromtimestamp(data['createdOn']),
+                        "project_dir": project_dir,
                         "Last Updated": datetime.fromtimestamp(data['lastUpdated']),
                         "patchset1_ssh": f'git clone {url[0:pos]}/{project}; cd {project_dir}; git pull {url[0:pos]}/{project} refs/changes/{id[len(id)-2:]}/{id}/1 --rebase',
                         "patchset1_repo": f'repo download {project} {id}/1'

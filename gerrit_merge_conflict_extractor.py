@@ -87,6 +87,7 @@ class ConflictExtractor:
                     conflicts[file_path] = file_conflicts
         return conflicts
 
+
 def main():
     parser = argparse.ArgumentParser(description='Extract merge conflict for downloaded gerrit patch')
     parser.add_argument('-t', '--target', default=os.getenv("GERRIT_HOST", 'gerrit-ssh'), help='Specify ssh target host')

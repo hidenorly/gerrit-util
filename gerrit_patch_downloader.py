@@ -47,6 +47,7 @@ class GitUtil:
 
         return target_folder
 
+
 def main():
     parser = argparse.ArgumentParser(description='Download gerrit patch')
     parser.add_argument('-t', '--target', default=os.getenv("GERRIT_HOST", 'gerrit-ssh'), help='Specify ssh target host')
