@@ -20,10 +20,13 @@ import re
 from gerrit_query import GerritUtil
 from gerrit_patch_downloader import GitUtil
 from gerrit_merge_conflict_extractor import ConflictExtractor
+from gerrit_merge_conflict_solver import GptHelper
+from gerrit_merge_conflict_solver import CaludeGptHelper
 from gerrit_merge_conflict_solver import MergeConflictSolver
 
 class MergeConflictResolutionApplier:
-    def __init__(self):
+    def __init__(self, margin_line_count):
+        self.margin_line_count = margin_line_count
         pass
 
     def read_file(self, file_path):
@@ -91,8 +94,8 @@ class MergeConflictResolutionApplier:
 
         return resolved_lines
 
-    def clean_up_resolution_diff(self, resolution_diff_lines, merge_conflict_lines, conflicted_sections, margin=50):
-        _resolution_diff_lines = resolution_diff_lines
+    def clean_up_resolution_diff(self, resolution_diff_lines, merge_conflict_lines, conflicted_sections):
+        margin=self.margin_line_count
         if conflicted_sections:
             for conflict_start, conflict_end in conflicted_sections:
                 start_pos = max(0, conflict_start-margin)
@@ -102,6 +105,8 @@ class MergeConflictResolutionApplier:
                 last_found = None
                 for d in range(0, len(resolution_diff_lines)):
                     diff_start_line = resolution_diff_lines[d].strip()
+                    if diff_start_line.startswith("-") or diff_start_line.startswith("+"):
+                        diff_start_line = diff_start_line[1:]
                     for i in range(start_pos, conflict_start):
                         if merge_conflict_lines[i].strip() == diff_start_line:
                             last_found = d
@@ -116,6 +121,8 @@ class MergeConflictResolutionApplier:
                 last_found = None
                 for d in range(0, len(resolution_diff_lines)):
                     diff_start_line = resolution_diff_lines[d].strip()
+                    if diff_start_line.startswith("-") or diff_start_line.startswith("+"):
+                        diff_start_line = diff_start_line[1:]
                     for i in range(conflict_end, end_pos):
                         if merge_conflict_lines[i].strip() == diff_start_line:
                             last_found = d
@@ -124,6 +131,10 @@ class MergeConflictResolutionApplier:
                         break
                 if last_found!=None:
                     resolution_diff_lines = resolution_diff_lines[:last_found]
+
+                #print("CLEANED:")
+                #for line in resolution_diff_lines:
+                #    print(line)
 
         return resolution_diff_lines
 
@@ -158,7 +169,6 @@ class MergeConflictResolutionApplier:
             resolved_lines = current_file_line
 
         return resolved_lines
-
 
 class FileUtils:
     def get_file_line_end_code(file_path):
@@ -207,17 +217,39 @@ def main():
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-w', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
+    parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
 
-    parser.add_argument('-k', '--apikey', action='store', default=os.getenv("AZURE_OPENAI_API_KEY"), help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
-    parser.add_argument('-e', '--endpoint', action='store', default=os.getenv("AZURE_OPENAI_ENDPOINT"), help='specify your end point or set it in AZURE_OPENAI_ENDPOINT env')
-    parser.add_argument('-d', '--deployment', action='store', default=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"), help='specify deployment name or set it in AZURE_OPENAI_DEPLOYMENT_NAME env')
+    parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3')
+    parser.add_argument('-k', '--apikey', action='store', default=None, help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
+    parser.add_argument('-y', '--secretkey', action='store', default=os.getenv("AWS_SECRET_ACCESS_KEY"), help='specify your secret key or set it in AWS_SECRET_ACCESS_KEY env (for claude3)')
+    parser.add_argument('-e', '--endpoint', action='store', default=None, help='specify your end point or set it in AZURE_OPENAI_ENDPOINT env')
+    parser.add_argument('-d', '--deployment', action='store', default=None, help='specify deployment name or set it in AZURE_OPENAI_DEPLOYMENT_NAME env')
     parser.add_argument('-p', '--promptfile', action='store', default="./git_merge_conflict_resolution_for_upstream_integration.json", help='specify prompt.json')
+
     parser.add_argument('-a', '--apply', action='store_true', default=False, help='Specify if apply the modification for the conflicted file')
 
     args = parser.parse_args()
 
-    solver = MergeConflictSolver(args.apikey, args.endpoint, "2024-02-01", args.deployment, args.promptfile)
-    applier = MergeConflictResolutionApplier()
+    gpt_client = None
+    if args.useclaude:
+        if not args.apikey:
+            args.apikey = os.getenv('AWS_ACCESS_KEY_ID')
+        if not args.endpoint:
+            args.endpoint = "us-west-2"
+        if not args.deployment:
+            args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
+        gpt_client = CaludeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
+    else:
+        if not args.apikey:
+            args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
+        if not args.endpoint:
+            args.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        if not args.deployment:
+            args.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+        gpt_client = GptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
+
+    solver = MergeConflictSolver(gpt_client, args.promptfile)
+    applier = MergeConflictResolutionApplier(args.marginline)
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since)
     for project, data in result.items():
@@ -229,7 +261,7 @@ def main():
                     print(f'{key}:{value}')
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
-                conflict_detector = ConflictExtractor(download_path)
+                conflict_detector = ConflictExtractor(download_path, args.marginline)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)

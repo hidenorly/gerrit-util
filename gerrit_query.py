@@ -80,7 +80,7 @@ class GerritUtil:
                         "Created": datetime.fromtimestamp(data['createdOn']),
                         "project_dir": project_dir,
                         "Last Updated": datetime.fromtimestamp(data['lastUpdated']),
-                        "patchset1_ssh": f'git clone {url[0:pos]}/{project}; cd {project_dir}; git pull {url[0:pos]}/{project} refs/changes/{id[len(id)-2:]}/{id}/1 --rebase',
+                        "patchset1_ssh": f'git clone {url[0:pos]}/{project} -b {branch}; cd {project_dir}; git pull {url[0:pos]}/{project} refs/changes/{id[len(id)-2:]}/{id}/1 --rebase',
                         "patchset1_repo": f'repo download {project} {id}/1'
                     }
                     result[project][branch].append(theData)

@@ -15,150 +15,46 @@
 import argparse
 import os
 import sys
-import json
-from openai import AzureOpenAI
-import logging
-import boto3
-from botocore.exceptions import ClientError
+import re
+import subprocess
 
 from gerrit_query import GerritUtil
 from gerrit_patch_downloader import GitUtil
 from gerrit_merge_conflict_extractor import ConflictExtractor
+from gerrit_merge_conflict_solver import GptHelper
+from gerrit_merge_conflict_solver import CaludeGptHelper
+from gerrit_merge_conflict_solver import MergeConflictSolver
+from gerrit_merge_conflict_resolution_applier import MergeConflictResolutionApplier
+from gerrit_merge_conflict_resolution_applier import FileUtils
 
-class GptHelper:
-    def __init__(self, api_key, endpoint, api_version = "2024-02-01", model = "gpt-35-turbo-instruct"):
-        self.client = AzureOpenAI(
-          api_key = api_key,
-          api_version = api_version,
-          azure_endpoint = endpoint
-        )
-        self.model = model
+class ExecUtil:
+    def exec_cmd(exec_cmd, target_folder="."):
+        current_dir = target_folder
 
-    def query(self, system_prompt, user_prompt):
-        _messages = []
-        if system_prompt:
-            _messages.append( {"role": "system", "content": system_prompt} )
-        if user_prompt:
-            _messages.append( {"role": "user", "content": user_prompt} )
+        commands = exec_cmd.split(';')
+        for command in commands:
+            command = command.strip()
+            if command.startswith('cd'):
+                # Change directory command
+                new_dir = command[3:].strip()
+                current_dir = os.path.join(current_dir, new_dir)
+            else:
+                # Execute other commands
+                try:
+                    subprocess.run(command, shell=True, check=True, cwd=current_dir)
+                except:
+                    pass
 
-        response = self.client.chat.completions.create(
-            model= self.model,
-            messages = _messages
-        )
-        return response.choices[0].message.content, response
+class GerritUploader:
+    def upload(target_folder, branch):
+        upload_cmd = f"git add *; git commit --amend --no-edit; git push origin HEAD:refs/for/{branch}"
 
-    @staticmethod
-    def files_reader(files):
-        result = ""
+        # check the target_folder is git folder
+        if os.path.exists(os.path.join(target_folder+"/.git")):
+            ExecUtil.exec_cmd(upload_cmd, target_folder)
 
-        for path in files:
-            if os.path.exists( path ):
-              with open(path, 'r', encoding='UTF-8') as f:
-                result += f.read()
+        return target_folder
 
-        return result
-
-    @staticmethod
-    def read_prompt_json(path):
-        system_prompt = ""
-        user_prompt = ""
-
-        if path and os.path.isfile(path):
-            with open(path, 'r', encoding='UTF-8') as f:
-              result = json.load(f)
-              if "system_prompt" in result:
-                system_prompt = result["system_prompt"]
-              if "user_prompt" in result:
-                user_prompt = result["user_prompt"]
-
-        return system_prompt, user_prompt
-
-
-class CaludeGptHelper(GptHelper):
-    def __init__(self, api_key, secret_key, region="us-west-2", model="anthropic.claude-3-sonnet-20240229-v1:0"):
-        if api_key and secret_key and region:
-            self.client = boto3.client(
-                service_name='bedrock-runtime',
-                aws_access_key_id=api_key,
-                aws_secret_access_key=secret_key,
-                region_name=region
-            )
-        else:
-            self.client = boto3.client(service_name='bedrock-runtime')
-
-        self.model = model
-
-    def query(self, system_prompt, user_prompt, max_tokens=200000):
-        if self.client:
-            _message = [{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": user_prompt
-                    }
-                ]
-            }]
-
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": max_tokens,
-                "temperature": 1,
-                "top_p": 0.999,
-                "system": system_prompt,
-                "messages": _message
-            })
-
-            try:
-                response = self.client.invoke_model_with_response_stream(
-                    body=body,
-                    modelId=self.model
-                )
-
-                result = ""
-                status = {}
-
-                for event in response.get("body"):
-                    chunk = json.loads(event["chunk"]["bytes"])
-
-                    if chunk['type'] == 'message_delta':
-                        status = {
-                            "stop_reason": chunk['delta']['stop_reason'],
-                            "stop_sequence": chunk['delta']['stop_sequence'],
-                            "output_tokens": chunk['usage']['output_tokens'],
-                        }
-                    if chunk['type'] == 'content_block_delta':
-                        if chunk['delta']['type'] == 'text_delta':
-                            result += chunk['delta']['text']
-
-                return result, status
-
-            except ClientError as err:
-                message = err.response["Error"]["Message"]
-                print(f"A client error occurred: {message}")
-        return None, None
-
-
-class MergeConflictSolver:
-    def __init__(self, client, promptfile=None):
-        self.system_prompt, self.user_prompt = GptHelper.read_prompt_json(promptfile)
-        self.client = client
-
-    def query(self, conflict_section):
-        content = None
-        response = None
-
-        system_prompt = self.system_prompt
-        user_prompt = self.user_prompt+"\n```"+conflict_section+"```"
-
-        if self.client:
-            try:
-                content, response = self.client.query(system_prompt, user_prompt)
-            except:
-                pass
-            return content, response
-        else:
-            return None, None
 
 def main():
     parser = argparse.ArgumentParser(description='Extract merge conflict for downloaded gerrit patch')
@@ -176,6 +72,9 @@ def main():
     parser.add_argument('-e', '--endpoint', action='store', default=None, help='specify your end point or set it in AZURE_OPENAI_ENDPOINT env')
     parser.add_argument('-d', '--deployment', action='store', default=None, help='specify deployment name or set it in AZURE_OPENAI_DEPLOYMENT_NAME env')
     parser.add_argument('-p', '--promptfile', action='store', default="./git_merge_conflict_resolution_for_upstream_integration.json", help='specify prompt.json')
+
+    parser.add_argument('-a', '--apply', action='store_true', default=False, help='Specify if apply the modification for the conflicted file')
+    parser.add_argument('-u', '--upload', action='store_true', default=False, help='Specify if upload the the conflict resolved result')
 
     args = parser.parse_args()
 
@@ -198,6 +97,7 @@ def main():
         gpt_client = GptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
 
     solver = MergeConflictSolver(gpt_client, args.promptfile)
+    applier = MergeConflictResolutionApplier()
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since)
     for project, data in result.items():
@@ -213,12 +113,28 @@ def main():
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
+                    # get resolutions for each conflicted area
+                    resolutions = []
                     for i,section in enumerate(sections):
                         print(f'---conflict_section---{i}')
                         print(section)
                         resolution, _full_response = solver.query(section)
                         print(f'---resolution---{i}')
                         print(resolution)
+                        codes = applier.get_code_section(resolution)
+                        resolutions.extend( codes )
+
+                    # apply resolutions for the file
+                    target_file_lines = applier.read_file(file_name)
+                    for resolution in resolutions:
+                        target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolution)
+                    print(f'---resolved_full_file---{file_name}')
+                    print('\n'.join(target_file_lines))
+                    if args.apply or args.upload:
+                        FileUtils.save_modified_code(file_name, target_file_lines)
+                if args.upload:
+                    GerritUploader.upload(os.path.join(download_path, _data["project_dir"]), branch)
+
 
 if __name__ == "__main__":
     main()

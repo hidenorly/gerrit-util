@@ -87,7 +87,6 @@ class ConflictExtractor:
                     conflicts[file_path] = file_conflicts
         return conflicts
 
-
 def main():
     parser = argparse.ArgumentParser(description='Extract merge conflict for downloaded gerrit patch')
     parser.add_argument('-t', '--target', default=os.getenv("GERRIT_HOST", 'gerrit-ssh'), help='Specify ssh target host')
@@ -96,6 +95,7 @@ def main():
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-d', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
+    parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
     args = parser.parse_args()
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since)
@@ -108,7 +108,7 @@ def main():
                     print(f'{key}:{value}')
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
-                conflict_detector = ConflictExtractor(download_path)
+                conflict_detector = ConflictExtractor(download_path, args.marginline)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
