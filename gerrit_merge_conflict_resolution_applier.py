@@ -38,18 +38,25 @@ class MergeConflictResolutionApplier:
     def get_code_section(self, lines):
         results = []
 
-        if not isinstance(lines, list):
+        if lines and not isinstance(lines, list):
             lines = lines.split("\n")
+        if not lines:
+            lines=[]
 
         start_pos = None
         for i in range(0, len(lines)):
-            line = lines[i]
+            line = lines[i].strip()
             if start_pos==None and (line.startswith("```") or line.startswith("++ b/")):
                 start_pos = i
             elif start_pos!=None and line.startswith("```"):
                 results.append( lines[start_pos+1:i] )
                 start_pos = None
+        if start_pos!=None:
+            results.append( lines[start_pos+1:len(lines)] )
         if not results:
+            print("ERROR!!!!!")
+            print("\n".join(lines))
+            #exit()
             results = [lines]
 
         return results
@@ -96,6 +103,8 @@ class MergeConflictResolutionApplier:
 
     def clean_up_resolution_diff(self, resolution_diff_lines, merge_conflict_lines, conflicted_sections):
         margin=self.margin_line_count
+        front_lines = []
+        rear_lines = []
         if conflicted_sections:
             for conflict_start, conflict_end in conflicted_sections:
                 start_pos = max(0, conflict_start-margin)
@@ -103,6 +112,7 @@ class MergeConflictResolutionApplier:
 
                 # for front
                 last_found = None
+                is_first_found = False
                 for d in range(0, len(resolution_diff_lines)):
                     diff_start_line = resolution_diff_lines[d].strip()
                     if diff_start_line.startswith("-") or diff_start_line.startswith("+"):
@@ -111,6 +121,9 @@ class MergeConflictResolutionApplier:
                         if merge_conflict_lines[i].strip() == diff_start_line:
                             last_found = d
                             start_pos = i
+                            if not is_first_found:
+                                front_lines = resolution_diff_lines[0:d]
+                                is_first_found = True
                     if last_found == None:
                         break
                 if last_found!=None:
@@ -131,12 +144,45 @@ class MergeConflictResolutionApplier:
                         break
                 if last_found!=None:
                     resolution_diff_lines = resolution_diff_lines[:last_found]
+                    rear_lines = resolution_diff_lines[last_found:]
 
-                #print("CLEANED:")
-                #for line in resolution_diff_lines:
-                #    print(line)
+                print("CLEANED:")
+                for line in resolution_diff_lines:
+                    print(line)
 
-        return resolution_diff_lines
+        return resolution_diff_lines, front_lines, rear_lines
+
+    def apply_true_diff(self, target_lines, diff_lines):
+        result = []
+        target_index = 0
+        target_length = len(target_lines)
+
+        for diff_line in diff_lines:
+            stripped_diff_line = diff_line.strip()
+            if diff_line.startswith('+'):
+                # Add the line
+                result.append(diff_line[1:])
+            elif diff_line.startswith('-'):
+                # Remove the line
+                while target_index < target_length and target_lines[target_index].strip() != stripped_diff_line[1:].strip():
+                    result.append(target_lines[target_index])
+                    target_index += 1
+                target_index += 1
+            else:
+                # Non-modified line
+                while target_index < target_length and target_lines[target_index].strip() != stripped_diff_line:
+                    result.append(target_lines[target_index])
+                    target_index += 1
+                if target_index < target_length:
+                    result.append(target_lines[target_index])
+                    target_index += 1
+
+        # remain
+        result.extend(target_lines[target_index:])
+
+        return result
+
+
 
     def solve_merge_conflict(self, current_file_line, conflicted_sections, resolution_diff_lines):
         resolved_lines = []
@@ -144,7 +190,7 @@ class MergeConflictResolutionApplier:
         if conflicted_sections:
             length_conflict_lines = len(current_file_line)
             _conflicted_sections = self.get_conflicted_pos_sections(current_file_line)
-            _resolution_diff_lines = self.clean_up_resolution_diff(resolution_diff_lines, current_file_line, _conflicted_sections)
+            _resolution_diff_lines, _diff_front, _diff_rear = self.clean_up_resolution_diff(resolution_diff_lines, current_file_line, _conflicted_sections)
 
             last_conflicted_section = 0
             for conflict_start, conflict_end in _conflicted_sections:
@@ -165,6 +211,10 @@ class MergeConflictResolutionApplier:
 
             # add remaining part (last_conflicted_section-end)
             resolved_lines.extend(current_file_line[last_conflicted_section:])
+
+            # apply diff for _diff_front and _diff_rear
+            resolved_lines = self.apply_true_diff(resolved_lines, _diff_front)
+            resolved_lines = self.apply_true_diff(resolved_lines, _diff_rear)
         else:
             resolved_lines = current_file_line
 
@@ -262,14 +312,16 @@ def main():
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline)
+                _conflict_detector = ConflictExtractor(download_path, 1)
                 conflict_sections = conflict_detector.get_conflicts()
+                _conflict_sections = _conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
                     # get resolutions for each conflicted area
                     resolutions = []
                     for i,section in enumerate(sections):
                         print(f'---conflict_section---{i}')
-                        print(section)
+                        print(_conflict_sections[file_name][i])
                         resolution, _full_response = solver.query(section)
                         print(f'---resolution---{i}')
                         print(resolution)
@@ -280,8 +332,8 @@ def main():
                     target_file_lines = applier.read_file(file_name)
                     for resolution in resolutions:
                         target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolution)
-                    print(f'---resolved_full_file---{file_name}')
-                    print('\n'.join(target_file_lines))
+                    #print(f'---resolved_full_file---{file_name}')
+                    #print('\n'.join(target_file_lines))
                     if args.apply:
                         FileUtils.save_modified_code(file_name, target_file_lines)
 
