@@ -144,7 +144,7 @@ class MergeConflictSolver:
         self.system_prompt, self.user_prompt = GptHelper.read_prompt_json(promptfile)
         self.client = client
 
-    def query(self, conflict_section):
+    def _query(self, conflict_section):
         content = None
         response = None
 
@@ -159,6 +159,49 @@ class MergeConflictSolver:
             return content, response
         else:
             return None, None
+
+    def _check_valid_merge_conflict_resolution(self, lines):
+        if not lines:
+            return False
+
+        lines = lines.split('\n')
+
+        check_items = {
+            '<<<<<<< ': False,
+            '=======': False,
+            '>>>>>>> ': False
+        }
+        for line in lines:
+            line = line.strip()
+            for key, status in check_items.items():
+                if not status and line.startswith("-") and line[1:].strip().startswith(key):
+                    check_items[key] = True
+                    break
+            isAllFound = True
+            for status in check_items.values():
+                isAllFound = isAllFound and status
+            if isAllFound:
+                return True
+        return False
+
+
+    def query(self, conflict_section):
+        retry_count = 0
+        content = None
+        response = None
+
+        while True:
+            content, response = self._query(conflict_section)
+            retry_count += 1
+            if self._check_valid_merge_conflict_resolution(content) or retry_count>3:
+                break
+            else:
+                print(f"ERROR!!!: LLM didn't provide merge conflict resolution. Retry:{retry_count}")
+                print(content)
+                self.user_prompt += "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n"
+
+        return content, response
+
 
 def main():
     parser = argparse.ArgumentParser(description='Extract merge conflict for downloaded gerrit patch')
