@@ -160,18 +160,18 @@ class MergeConflictSolver:
         else:
             return None, None
 
-    def _check_valid_merge_conflict_resolution(self, lines):
+    def _check_valid_merge_conflict_resolution(self, lines, is_fallback=True):
         if not lines:
             return False
 
-        lines = lines.split('\n')
+        _lines = lines.split('\n')
 
         check_items = {
             '<<<<<<< ': False,
             '=======': False,
             '>>>>>>> ': False
         }
-        for line in lines:
+        for line in _lines:
             line = line.strip()
             for key, status in check_items.items():
                 if not status and line.startswith("-") and line[1:].strip().startswith(key):
@@ -182,6 +182,13 @@ class MergeConflictSolver:
                 isAllFound = isAllFound and status
             if isAllFound:
                 return True
+
+        if is_fallback:
+            for key in check_items.keys():
+                if key in lines:
+                    return False
+            return True
+
         return False
 
 
@@ -198,7 +205,7 @@ class MergeConflictSolver:
             else:
                 print(f"ERROR!!!: LLM didn't provide merge conflict resolution. Retry:{retry_count}")
                 print(content)
-                self.user_prompt += "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n"
+                self.user_prompt = "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n" + self.user_prompt
 
         return content, response
 

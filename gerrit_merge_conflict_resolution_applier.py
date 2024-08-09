@@ -16,6 +16,7 @@ import argparse
 import os
 import sys
 import re
+import itertools
 
 from gerrit_query import GerritUtil
 from gerrit_patch_downloader import GitUtil
@@ -53,7 +54,7 @@ class MergeConflictResolutionApplier:
                 start_pos = None
         if start_pos!=None:
             results.append( lines[start_pos+1:len(lines)] )
-        if not results:
+        if not results and not lines:
             print("ERROR!!!!!")
             print("\n".join(lines))
             #exit()
@@ -85,22 +86,6 @@ class MergeConflictResolutionApplier:
 
         return False
 
-    def apply_diff(self, conflicted_section_lines, diff_lines):
-        resolved_lines = []
-
-        for line in diff_lines:
-            _line = None
-            if line.startswith('+'):
-                _line = " "+line[1:]
-            elif line.startswith('-'):
-                pass
-            else:
-                _line = line
-            if _line!=None:
-                resolved_lines.append(_line)
-
-        return resolved_lines
-
     def clean_up_resolution_diff(self, resolution_diff_lines, merge_conflict_lines, conflicted_sections):
         margin=self.margin_line_count
         front_lines = []
@@ -127,7 +112,7 @@ class MergeConflictResolutionApplier:
                     if last_found == None:
                         break
                 if last_found!=None:
-                    last_found=min(len(resolution_diff_lines), last_found+1)
+                    last_found=max(0, last_found-1)
                     resolution_diff_lines = resolution_diff_lines[last_found:]
 
                 # for last
@@ -143,8 +128,8 @@ class MergeConflictResolutionApplier:
                     if last_found!=None:
                         break
                 if last_found!=None:
+                    rear_lines = resolution_diff_lines[max(last_found-1,0):]
                     resolution_diff_lines = resolution_diff_lines[:last_found]
-                    rear_lines = resolution_diff_lines[last_found:]
 
                 print("CLEANED:")
                 for line in resolution_diff_lines:
@@ -152,17 +137,57 @@ class MergeConflictResolutionApplier:
 
         return resolution_diff_lines, front_lines, rear_lines
 
-    def apply_true_diff(self, target_lines, diff_lines):
+    def apply_diff(self, conflicted_section_lines, diff_lines):
+        return self.apply_true_diff(conflicted_section_lines, diff_lines)
+
+    def print_few_tail_lines(self, marker, lines, count):
+        length = len(lines)
+        start_pos = max(length-count, 0)
+        print(marker)
+        print("\n".join(lines[start_pos:length]))
+
+    def is_ok_to_apply_the_diff(self, target_lines, target_index, diff_lines, diff_index):
+        return True
+
+        # TODO: Fix the following
+        if target_index == 0 or diff_index == 0:
+            return True
+        if not target_lines or not diff_lines:
+            return False
+
+        # find previous line of diff_lines
+        prev_normal_diff_line = None
+        for i in range(min(diff_index - 1, len(diff_lines)), -1, -1):
+            line = diff_lines[i].strip()
+            if not line.startswith('-') and not line.startswith('+') and not line.startswith('@@'):
+                prev_normal_diff_line = line
+                break
+
+        # check target_lines with the previous line
+        prev_target_line = target_lines[target_index - 1].strip() if target_index > 0 else None
+        if prev_target_line == prev_normal_diff_line:
+            return True
+        else:
+            print("This is NOT expected to apply the diff for this target lines:")
+            try:
+                self.print_few_tail_lines("target_lines:", target_lines[:target_index], 5)
+                self.print_few_tail_lines("diff_lines:", diff_lines[:diff_index], 5)
+            except:
+                pass
+            print("")
+            return False
+
+    def apply_true_diff_bkup(self, target_lines, diff_lines):
         result = []
         target_index = 0
         target_length = len(target_lines)
 
-        for diff_line in diff_lines:
+        for d, diff_line in enumerate(diff_lines):
             stripped_diff_line = diff_line.strip()
-            if diff_line.startswith('+'):
+            if diff_line.startswith('+') and self.is_ok_to_apply_the_diff(target_lines, target_index, diff_lines, d):
                 # Add the line
                 result.append(diff_line[1:])
-            elif diff_line.startswith('-'):
+            elif diff_line.startswith('-') and self.is_ok_to_apply_the_diff(target_lines, target_index, diff_lines, d):
                 # Remove the line
                 while target_index < target_length and target_lines[target_index].strip() != stripped_diff_line[1:].strip():
                     result.append(target_lines[target_index])
@@ -182,15 +207,117 @@ class MergeConflictResolutionApplier:
 
         return result
 
+    def apply_true_diff(self, target_lines, diff_lines, is_prioritize_diff=True):
+        result = []
 
+        target_index = 0
+        diff_index = 0
+        target_length = len(target_lines)
+        diff_length = len(diff_lines)
+
+        is_found = False
+        prev_line = ""
+        while target_index < target_length and diff_index < diff_length:
+            _target_line = target_lines[target_index]
+            target_line = _target_line.strip()
+            _diff_line = diff_lines[diff_index]
+            diff_line = _diff_line.strip()
+
+            if not diff_line.startswith(('+', '-')) and target_line == diff_line:
+                # found common line
+                is_found = True
+                if target_line:
+                    prev_line = _target_line
+                result.append(_target_line)
+                target_index += 1
+                diff_index += 1
+            elif diff_line.startswith('+') and is_found:
+                # case : +
+                addition = diff_lines[diff_index][1:]
+                addition_strip = addition.strip()
+                prev_length_indent = len(prev_line) - len(prev_line.strip())
+                addition_length_indent = len(addition) - len(addition.strip())
+                adjusted_line = addition
+                if abs(prev_length_indent - addition_length_indent) <= 1:
+                    adjusted_line = " " * prev_length_indent + addition_strip
+                result.append(adjusted_line)
+                if addition_strip:
+                    prev_line = adjusted_line
+                diff_index += 1
+            elif diff_line.startswith('-') and is_found:
+                # case : -
+                if target_line == diff_line[1:].strip():
+                    target_index += 1
+                diff_index += 1
+            else:
+                # case : not common line, not diff +/-
+                if is_prioritize_diff and (target_index+1 < target_length) and (diff_index+1 < diff_length) and target_lines[target_index+1].strip()==diff_lines[diff_index+1].strip():
+                    # Replace current target_line with the diff_line if the next lines match
+                    addition = diff_lines[diff_index]
+                    addition_strip = addition.strip()
+                    prev_length_indent = len(prev_line) - len(prev_line.strip())
+                    addition_length_indent = len(addition) - len(addition.strip())
+                    adjusted_line = addition
+                    if abs(prev_length_indent - addition_length_indent) <= 1:
+                        adjusted_line = " " * prev_length_indent + addition_strip
+                    result.append(adjusted_line)
+                    if addition_strip:
+                        prev_line = adjusted_line
+                    diff_index += 1
+                    target_index += 1
+                    is_found = False
+                else:
+                    if target_line:
+                        is_found = False # keep is_found=True if target_line[target_index].strip == """
+                    result.append(_target_line)
+                    prev_line = _target_line
+                    target_index += 1
+
+        # remaining diff_lines
+        while diff_index < diff_length:
+            if diff_lines[diff_index].startswith('+') and is_found:
+                addition = diff_lines[diff_index][1:]
+                addition_strip = addition.strip()
+                prev_length_indent = len(prev_line) - len(prev_line.strip())
+                addition_length_indent = len(addition) - len(addition.strip())
+                adjusted_line = addition
+                if abs(prev_length_indent - addition_length_indent) <= 1:
+                    adjusted_line = " " * prev_length_indent + addition_strip
+                result.append(adjusted_line)
+                if addition_strip:
+                    prev_line = adjusted_line
+
+            diff_index += 1
+
+        # remaining target_lines
+        while target_index < target_length:
+            result.append(target_lines[target_index])
+            target_index += 1
+
+        return result
+
+
+    def just_in_case_cleanup(self, resolved_lines):
+        result = []
+        for line in resolved_lines:
+            if line.startswith("+") or line.startswith("-"):
+                line = line[1:]
+            if line.startswith(">>>>>>> ") or line.strip()=="=======" or line.startswith("<<<<<<< "):
+                pass
+            else:
+                result.append(line)
+        return result
 
     def solve_merge_conflict(self, current_file_line, conflicted_sections, resolution_diff_lines):
+        # This relies on diff output
+        return self.apply_true_diff(current_file_line, resolution_diff_lines)
+
+        # the following tries as fallback if the resolution didn't follow diff output manner
         resolved_lines = []
 
         if conflicted_sections:
             length_conflict_lines = len(current_file_line)
             _conflicted_sections = self.get_conflicted_pos_sections(current_file_line)
-            _resolution_diff_lines, _diff_front, _diff_rear = self.clean_up_resolution_diff(resolution_diff_lines, current_file_line, _conflicted_sections)
 
             last_conflicted_section = 0
             for conflict_start, conflict_end in _conflicted_sections:
@@ -218,6 +345,8 @@ class MergeConflictResolutionApplier:
         else:
             resolved_lines = current_file_line
 
+        resolved_lines = self.just_in_case_cleanup(resolved_lines)
+
         return resolved_lines
 
 class FileUtils:
@@ -228,9 +357,9 @@ class FileUtils:
                 data = file.read()
 
             newline_counts = {
-                '\r\n': 0,
+                '\n': 0,
                 '\r': 0,
-                '\n': 0
+                '\r\n': 0
             }
 
             i = 0
@@ -330,8 +459,15 @@ def main():
 
                     # apply resolutions for the file
                     target_file_lines = applier.read_file(file_name)
-                    for resolution in resolutions:
-                        target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolution)
+                    resolutions_lines = list(itertools.chain(*resolutions))
+                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines)
+                    _target_file_lines = applier.just_in_case_cleanup(target_file_lines)
+                    if _target_file_lines != target_file_lines:
+                        print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip this file")
+                        #break
+                        #the following is for debug
+                        target_file_lines = _target_file_lines
+
                     #print(f'---resolved_full_file---{file_name}')
                     #print('\n'.join(target_file_lines))
                     if args.apply:
