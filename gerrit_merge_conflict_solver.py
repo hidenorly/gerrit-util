@@ -14,6 +14,7 @@
 
 import argparse
 import os
+import re
 import sys
 import json
 from openai import AzureOpenAI
@@ -62,6 +63,7 @@ class GptHelper:
     def read_prompt_json(path):
         system_prompt = ""
         user_prompt = ""
+        result = {}
 
         if path and os.path.isfile(path):
             with open(path, 'r', encoding='UTF-8') as f:
@@ -71,7 +73,10 @@ class GptHelper:
               if "user_prompt" in result:
                 user_prompt = result["user_prompt"]
 
-        return system_prompt, user_prompt
+        if system_prompt or user_prompt:
+            return system_prompt, user_prompt
+        else:
+            return result, None
 
 
 class CaludeGptHelper(GptHelper):
@@ -141,24 +146,47 @@ class CaludeGptHelper(GptHelper):
 
 class MergeConflictSolver:
     def __init__(self, client, promptfile=None):
-        self.system_prompt, self.user_prompt = GptHelper.read_prompt_json(promptfile)
+        self.prompts, _ = GptHelper.read_prompt_json(promptfile)
         self.client = client
+        if not "resolver" in self.prompts or not "checker" in self.prompts:
+            self.prompts = None
 
-    def _query(self, conflict_section):
+    def _query_conflict_resolution(self, conflict_section):
         content = None
         response = None
 
-        system_prompt = self.system_prompt
-        user_prompt = self.user_prompt+"\n```"+conflict_section+"```"
+        if self.prompts and self.client:
+            system_prompt = self.prompts["resolver"]["system_prompt"]
+            user_prompt = self.additional_user_prompt + self.prompts["resolver"]["user_prompt"]
+            user_prompt = user_prompt.replace("[MERGE_CONFLICT]", conflict_section)
 
-        if self.client:
             try:
                 content, response = self.client.query(system_prompt, user_prompt)
             except:
                 pass
             return content, response
-        else:
-            return None, None
+
+        return None, None
+
+    def _query_checker(self, conflict_section, resolution_diff):
+        content = None
+        response = None
+
+        if self.prompts and self.client:
+            system_prompt = self.prompts["checker"]["system_prompt"]
+            user_prompt = self.prompts["checker"]["user_prompt"]
+            user_prompt = user_prompt.replace("[DIFF_OUTPUT]", resolution_diff)
+            user_prompt = user_prompt.replace("[MERGE_CONFLICT]", conflict_section)
+            print("\n---2nd level LLM consideration------")
+            print(user_prompt)
+
+            try:
+                content, response = self.client.query(system_prompt, user_prompt)
+            except:
+                pass
+            return content, response
+
+        return None, None
 
     def _check_valid_merge_conflict_resolution(self, lines, is_fallback=True):
         if not lines:
@@ -191,21 +219,52 @@ class MergeConflictSolver:
 
         return False
 
+    def get_code_section(self, lines):
+        results = []
+
+        if lines and not isinstance(lines, list):
+            lines = lines.split("\n")
+        if not lines:
+            lines=[]
+
+        start_pos = None
+        for i in range(0, len(lines)):
+            line = lines[i].strip()
+            if start_pos==None and (line.startswith("```") or line.startswith("++ b/")):
+                start_pos = i
+            elif start_pos!=None and line.startswith("```"):
+                results.extend( lines[start_pos+1:i] )
+                start_pos = None
+        if start_pos!=None:
+            results.extend( lines[start_pos+1:len(lines)] )
+        if not results and not lines:
+            print("ERROR!!!!!")
+            print("\n".join(lines))
+            results = lines
+
+        return str("\n".join(results))
 
     def query(self, conflict_section):
         retry_count = 0
         content = None
         response = None
 
+        self.additional_user_prompt = ""
+
         while True:
-            content, response = self._query(conflict_section)
+            content, response = self._query_conflict_resolution(conflict_section)
+            if content:
+                if not self._check_valid_merge_conflict_resolution(content, False):
+                    resolution_diff = self.get_code_section(content)
+                    if resolution_diff:
+                        content, response = self._query_checker(conflict_section, resolution_diff)
             retry_count += 1
             if self._check_valid_merge_conflict_resolution(content) or retry_count>3:
                 break
             else:
                 print(f"ERROR!!!: LLM didn't provide merge conflict resolution. Retry:{retry_count}")
                 print(content)
-                self.user_prompt = "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n" + self.user_prompt
+                self.additional_user_prompt = "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n"
 
         return content, response
 
