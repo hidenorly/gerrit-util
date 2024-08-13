@@ -62,152 +62,21 @@ class MergeConflictResolutionApplier:
 
         return results
 
-    def get_conflicted_pos_sections(self, lines):
-        conflicted_sections = []
-
-        conflict_start = None
-        for i, line in enumerate(lines):
-            if line.startswith('<<<<<<< '):
-                conflict_start = i
-            elif line.startswith('>>>>>>> '):
-                if conflict_start!=None:
-                    conflicted_sections.append([conflict_start, i])
-                    conflict_start = None
-
-        return conflicted_sections
-
-
-    def check_conflicted_section_with_target_diff(self, conflicted_section_lines, diff_lines):
-        stripped_conflict_section = [re.sub(r'<<<<<<<\s*\w*|=======|>>>>>>> \s*\w*', '', line) for line in conflicted_section_lines]
-        stripped_diff_section = [line[1:].strip('\n') if line.startswith('-') else line.strip('\n') for line in diff_lines]
-
-        if any(line in ''.join(stripped_conflict_section) for line in stripped_diff_section):
-            return True
-
-        return False
-
-    def clean_up_resolution_diff(self, resolution_diff_lines, merge_conflict_lines, conflicted_sections):
-        margin=self.margin_line_count
-        front_lines = []
-        rear_lines = []
-        if conflicted_sections:
-            for conflict_start, conflict_end in conflicted_sections:
-                start_pos = max(0, conflict_start-margin)
-                end_pos = min(len(merge_conflict_lines), conflict_end+margin)
-
-                # for front
-                last_found = None
-                is_first_found = False
-                for d in range(0, len(resolution_diff_lines)):
-                    diff_start_line = resolution_diff_lines[d].strip()
-                    if diff_start_line.startswith("-") or diff_start_line.startswith("+"):
-                        diff_start_line = diff_start_line[1:]
-                    for i in range(start_pos, conflict_start):
-                        if merge_conflict_lines[i].strip() == diff_start_line:
-                            last_found = d
-                            start_pos = i
-                            if not is_first_found:
-                                front_lines = resolution_diff_lines[0:d]
-                                is_first_found = True
-                    if last_found == None:
-                        break
-                if last_found!=None:
-                    last_found=max(0, last_found-1)
-                    resolution_diff_lines = resolution_diff_lines[last_found:]
-
-                # for last
-                last_found = None
-                for d in range(0, len(resolution_diff_lines)):
-                    diff_start_line = resolution_diff_lines[d].strip()
-                    if diff_start_line.startswith("-") or diff_start_line.startswith("+"):
-                        diff_start_line = diff_start_line[1:]
-                    for i in range(conflict_end, end_pos):
-                        if merge_conflict_lines[i].strip() == diff_start_line:
-                            last_found = d
-                            break
-                    if last_found!=None:
-                        break
-                if last_found!=None:
-                    rear_lines = resolution_diff_lines[max(last_found-1,0):]
-                    resolution_diff_lines = resolution_diff_lines[:last_found]
-
-                print("CLEANED:")
-                for line in resolution_diff_lines:
-                    print(line)
-
-        return resolution_diff_lines, front_lines, rear_lines
-
-    def apply_diff(self, conflicted_section_lines, diff_lines):
-        return self.apply_true_diff(conflicted_section_lines, diff_lines)
-
     def print_few_tail_lines(self, marker, lines, count):
         length = len(lines)
         start_pos = max(length-count, 0)
         print(marker)
         print("\n".join(lines[start_pos:length]))
 
-    def is_ok_to_apply_the_diff(self, target_lines, target_index, diff_lines, diff_index):
-        return True
+    def clean_up_diff(self, diff_lines):
+        results = []
+        for line in diff_lines:
+            _line = line.strip()
+            if not _line.startswith(("@@ ", "--- ", "+++ ")):
+                results.append(line)
+        return results
 
-        # TODO: Fix the following
-        if target_index == 0 or diff_index == 0:
-            return True
-        if not target_lines or not diff_lines:
-            return False
-
-        # find previous line of diff_lines
-        prev_normal_diff_line = None
-        for i in range(min(diff_index - 1, len(diff_lines)), -1, -1):
-            line = diff_lines[i].strip()
-            if not line.startswith('-') and not line.startswith('+') and not line.startswith('@@'):
-                prev_normal_diff_line = line
-                break
-
-        # check target_lines with the previous line
-        prev_target_line = target_lines[target_index - 1].strip() if target_index > 0 else None
-        if prev_target_line == prev_normal_diff_line:
-            return True
-        else:
-            print("This is NOT expected to apply the diff for this target lines:")
-            try:
-                self.print_few_tail_lines("target_lines:", target_lines[:target_index], 5)
-                self.print_few_tail_lines("diff_lines:", diff_lines[:diff_index], 5)
-            except:
-                pass
-            print("")
-            return False
-
-    def apply_true_diff_bkup(self, target_lines, diff_lines):
-        result = []
-        target_index = 0
-        target_length = len(target_lines)
-
-        for d, diff_line in enumerate(diff_lines):
-            stripped_diff_line = diff_line.strip()
-            if diff_line.startswith('+') and self.is_ok_to_apply_the_diff(target_lines, target_index, diff_lines, d):
-                # Add the line
-                result.append(diff_line[1:])
-            elif diff_line.startswith('-') and self.is_ok_to_apply_the_diff(target_lines, target_index, diff_lines, d):
-                # Remove the line
-                while target_index < target_length and target_lines[target_index].strip() != stripped_diff_line[1:].strip():
-                    result.append(target_lines[target_index])
-                    target_index += 1
-                target_index += 1
-            else:
-                # Non-modified line
-                while target_index < target_length and target_lines[target_index].strip() != stripped_diff_line:
-                    result.append(target_lines[target_index])
-                    target_index += 1
-                if target_index < target_length:
-                    result.append(target_lines[target_index])
-                    target_index += 1
-
-        # remain
-        result.extend(target_lines[target_index:])
-
-        return result
-
-    def apply_true_diff(self, target_lines, diff_lines, is_prioritize_diff=True):
+    def apply_true_diff(self, target_lines, diff_lines, is_prioritize_diff=False):
         result = []
 
         target_index = 0
@@ -300,9 +169,10 @@ class MergeConflictResolutionApplier:
     def just_in_case_cleanup(self, resolved_lines):
         result = []
         for line in resolved_lines:
-            if line.startswith("+") or line.startswith("-"):
-                line = line[1:]
-            if line.startswith(">>>>>>> ") or line.strip()=="=======" or line.startswith("<<<<<<< "):
+            _line = line.strip()
+            if _line.startswith("+") or _line.startswith("-"):
+                _line = _line[1:].strip()
+            if _line.startswith(">>>>>>> ") or _line.strip()=="=======" or _line.startswith("<<<<<<< "):
                 pass
             else:
                 result.append(line)
@@ -310,44 +180,8 @@ class MergeConflictResolutionApplier:
 
     def solve_merge_conflict(self, current_file_line, conflicted_sections, resolution_diff_lines):
         # This relies on diff output
+        resolution_diff_lines = self.clean_up_diff(resolution_diff_lines)
         return self.apply_true_diff(current_file_line, resolution_diff_lines)
-
-        # the following tries as fallback if the resolution didn't follow diff output manner
-        resolved_lines = []
-
-        if conflicted_sections:
-            length_conflict_lines = len(current_file_line)
-            _conflicted_sections = self.get_conflicted_pos_sections(current_file_line)
-
-            last_conflicted_section = 0
-            for conflict_start, conflict_end in _conflicted_sections:
-                # last_conflicted_section - conflict_start
-                resolved_lines.extend( current_file_line[last_conflicted_section:conflict_start] )
-
-                last_conflicted_section = conflict_end = min(conflict_end+1, length_conflict_lines)
-                conflicted_section_lines = current_file_line[conflict_start:conflict_end]
-
-                # add resolved conflicted section
-                if self.check_conflicted_section_with_target_diff(conflicted_section_lines, resolution_diff_lines):
-                    # found target diff section
-                    resolved_section = self.apply_diff(conflicted_section_lines, _resolution_diff_lines)
-                    resolved_lines.extend(resolved_section)
-                else:
-                    # this is not target section
-                    resolved_lines.extend(conflicted_section_lines)
-
-            # add remaining part (last_conflicted_section-end)
-            resolved_lines.extend(current_file_line[last_conflicted_section:])
-
-            # apply diff for _diff_front and _diff_rear
-            resolved_lines = self.apply_true_diff(resolved_lines, _diff_front)
-            resolved_lines = self.apply_true_diff(resolved_lines, _diff_rear)
-        else:
-            resolved_lines = current_file_line
-
-        resolved_lines = self.just_in_case_cleanup(resolved_lines)
-
-        return resolved_lines
 
 class FileUtils:
     def get_file_line_end_code(file_path):
