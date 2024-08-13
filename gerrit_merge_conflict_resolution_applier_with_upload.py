@@ -16,6 +16,7 @@ import argparse
 import os
 import sys
 import re
+import itertools
 import subprocess
 
 from gerrit_query import GerritUtil
@@ -97,12 +98,13 @@ def main():
         gpt_client = GptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
 
     solver = MergeConflictSolver(gpt_client, args.promptfile)
-    applier = MergeConflictResolutionApplier()
+    applier = MergeConflictResolutionApplier(args.marginline)
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since)
     for project, data in result.items():
         for branch, theData in data.items():
             for _data in theData:
+                canUpload = True
                 print(f'project:{project}')
                 print(f'branch:{branch}')
                 for key, value in _data.items():
@@ -110,14 +112,16 @@ def main():
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline)
+                _conflict_detector = ConflictExtractor(download_path, 1)
                 conflict_sections = conflict_detector.get_conflicts()
+                _conflict_sections = _conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
                     # get resolutions for each conflicted area
                     resolutions = []
                     for i,section in enumerate(sections):
                         print(f'---conflict_section---{i}')
-                        print(section)
+                        print(_conflict_sections[file_name][i])
                         resolution, _full_response = solver.query(section)
                         print(f'---resolution---{i}')
                         print(resolution)
@@ -126,14 +130,21 @@ def main():
 
                     # apply resolutions for the file
                     target_file_lines = applier.read_file(file_name)
-                    for resolution in resolutions:
-                        target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolution)
-                    print(f'---resolved_full_file---{file_name}')
-                    print('\n'.join(target_file_lines))
+                    resolutions_lines = list(itertools.chain(*resolutions))
+                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines)
+                    _target_file_lines = applier.just_in_case_cleanup(target_file_lines)
+                    #print(f'---resolved_full_file---{file_name}')
+                    #print('\n'.join(target_file_lines))
+                    if _target_file_lines != target_file_lines:
+                        print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip to upload this")
+                        target_file_lines = _target_file_lines
+                        canUpload = False
+
                     if args.apply or args.upload:
                         FileUtils.save_modified_code(file_name, target_file_lines)
-                if args.upload:
+                if canUpload and args.upload:
                     GerritUploader.upload(os.path.join(download_path, _data["project_dir"]), branch)
+                exit() # for debug
 
 
 if __name__ == "__main__":
