@@ -76,7 +76,16 @@ class MergeConflictResolutionApplier:
                 results.append(line)
         return results
 
-    def apply_true_diff(self, target_lines, diff_lines, is_prioritize_diff=False):
+    def _indent_adjusted_line(self, line, prev_line):
+        result = line
+        line_strip = line.strip()
+        line_indent = len(line) - len(line_strip)
+        prev_indent = len(prev_line) - len(prev_line.strip())
+        if abs(prev_indent - line_indent) <= 1:
+            result = " " * prev_indent + line_strip
+        return result
+
+    def apply_true_diff(self, target_lines, diff_lines, is_prioritize_diff=False, is_loose_apply=False):
         result = []
 
         target_index = 0
@@ -104,33 +113,21 @@ class MergeConflictResolutionApplier:
                 # case : +
                 addition = diff_lines[diff_index][1:]
                 addition_strip = addition.strip()
-                prev_length_indent = len(prev_line) - len(prev_line.strip())
-                addition_length_indent = len(addition) - len(addition.strip())
-                adjusted_line = addition
-                if abs(prev_length_indent - addition_length_indent) <= 1:
-                    adjusted_line = " " * prev_length_indent + addition_strip
+                adjusted_line = self._indent_adjusted_line(addition, prev_line)
                 result.append(adjusted_line)
                 if addition_strip:
                     prev_line = adjusted_line
                 diff_index += 1
-            elif diff_line.startswith('-') and is_found:
-                # case : -
-                if target_line == diff_line[1:].strip():
-                    target_index += 1
+            elif diff_line.startswith('-') and (is_found or is_loose_apply) and target_line == diff_line[1:].strip():
                 diff_index += 1
+                target_index += 1
             else:
                 # case : not common line, not diff +/-
                 if is_prioritize_diff and (target_index+1 < target_length) and (diff_index+1 < diff_length) and target_lines[target_index+1].strip()==diff_lines[diff_index+1].strip():
                     # Replace current target_line with the diff_line if the next lines match
-                    addition = diff_lines[diff_index]
-                    addition_strip = addition.strip()
-                    prev_length_indent = len(prev_line) - len(prev_line.strip())
-                    addition_length_indent = len(addition) - len(addition.strip())
-                    adjusted_line = addition
-                    if abs(prev_length_indent - addition_length_indent) <= 1:
-                        adjusted_line = " " * prev_length_indent + addition_strip
+                    adjusted_line = self._indent_adjusted_line(diff_lines[diff_index], prev_line)
                     result.append(adjusted_line)
-                    if addition_strip:
+                    if adjusted_line.strip():
                         prev_line = adjusted_line
                     diff_index += 1
                     target_index += 1
@@ -144,16 +141,10 @@ class MergeConflictResolutionApplier:
 
         # remaining diff_lines
         while diff_index < diff_length:
-            if diff_lines[diff_index].startswith('+') and is_found:
-                addition = diff_lines[diff_index][1:]
-                addition_strip = addition.strip()
-                prev_length_indent = len(prev_line) - len(prev_line.strip())
-                addition_length_indent = len(addition) - len(addition.strip())
-                adjusted_line = addition
-                if abs(prev_length_indent - addition_length_indent) <= 1:
-                    adjusted_line = " " * prev_length_indent + addition_strip
+            if diff_lines[diff_index].startswith('+') and (is_found or is_loose_apply):
+                adjusted_line = self._indent_adjusted_line(diff_lines[diff_index][1:], prev_line)
                 result.append(adjusted_line)
-                if addition_strip:
+                if adjusted_line.strip():
                     prev_line = adjusted_line
 
             diff_index += 1
@@ -306,6 +297,7 @@ def main():
                     #print('\n'.join(target_file_lines))
                     if args.apply:
                         FileUtils.save_modified_code(file_name, target_file_lines)
+                exit()
 
 
 if __name__ == "__main__":
