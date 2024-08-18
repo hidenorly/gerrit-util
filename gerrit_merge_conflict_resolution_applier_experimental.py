@@ -180,9 +180,16 @@ class MergeConflictResolutionApplier:
 
 
     def solve_merge_conflict(self, current_file_line, conflicted_sections, resolution_diff_lines, resolutions):
-        # This relies on diff output
+        result = None
+
+        # clean up unnecessary markers such as @, etc.
         resolution_diff_lines = self.clean_up_diff(resolution_diff_lines)
 
+        # try with diff
+        resolved_lines_as_entire_diff = self.apply_true_diff(current_file_line, resolution_diff_lines)
+        _resolved_lines_as_entire_diff = self.just_in_case_cleanup(resolved_lines_as_entire_diff)
+
+        # try with replacer per section
         # create replace sections
         replace_sections=[]
         length_resolutions = len(resolutions)
@@ -202,8 +209,19 @@ class MergeConflictResolutionApplier:
         # replace current_file_line with replace_sections
         for replace_section in replace_sections:
             current_file_line = ApplierUtil.replace_conflict_section(current_file_line, replace_section)
+        resolved_lines_as_replacer = current_file_line
+        _resolved_lines_as_replacer = self.just_in_case_cleanup(resolved_lines_as_replacer)
 
-        return current_file_line
+        result = resolved_lines_as_replacer # default
+
+        # check with the best result
+        if len(resolved_lines_as_entire_diff) == len(_resolved_lines_as_entire_diff):
+            result = resolved_lines_as_entire_diff
+        if len(resolved_lines_as_replacer) == len(_resolved_lines_as_replacer):
+            result = resolved_lines_as_replacer
+        # TODO: If not full, result should be None as failure...
+
+        return result
 
 class FileUtils:
     def get_file_line_end_code(file_path):
