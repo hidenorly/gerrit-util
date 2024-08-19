@@ -1,10 +1,7 @@
 {
+  "is_replace_allowed": "true",
   "resolver":{
     "system_prompt" : "You're the world class best programmer working with the upstream developers. code is expected to quote by ``` and ```",
     "user_prompt": "I need to help to resolve a merge conflict in my codebase.\n\nHere is the conflict section from the file:\n```\n[MERGE_CONFLICT]\n```\n\nPlease generate the merge conflict resolved code that:\n- Not includes `<<<<<<< HEAD`, `=======`, and `>>>>>>> upstream-branch` where the conflict markers should be removed.\n- Excludes any duplicate code that may already be present in both the base version and the upstream code.\n- Ensures that the final merged result maintains both the base version and upstream changes while avoiding redundancy.\n- Correctly handles code structure (e.g., ensuring functions and blocks are closed properly) to avoid syntax errors.\n- Avoids common merge issues, such as code duplication, misplaced function blocks, or syntax errors that could prevent the code from compiling.\n- Outputs the entire conflict resolution, ensuring that the resolution can be directly replaced and the code can be built without manual intervention.\n\nThe output should be quoted as ``` and ```\n"
-  },
-  "checker":{
-    "system_prompt" : "You're the world class best programmer working with the upstream developers. code is expected to quote by ``` and ```",
-    "user_prompt": "Please REVIEW about the git merge conflict resolution and OUTPUT the ```patch``` applicable diff code section for the merge conflicted file.\n\nHere is the merge conflict resolution:\n```\n[DIFF_OUTPUT]\n```\n\nCurrent merge conflicted file:\n```\n[MERGE_CONFLICT]\n```\nThe diff output should look like this:\n```\n-<<<<<<< HEAD\n-[Original base version code, with any duplicated lines removed]\n-=======\n-[Original upstream code, with any duplicated lines removed]\n->>>>>>> upstream-branch\n+[Resolved code that merges both versions, excluding duplicates]\n```\n"
   }
 }

@@ -21,7 +21,7 @@ class ApplierUtil:
         
         :param replace_lines: List of strings representing the resolved lines that replace the conflict section
 
-        :return: Tuple (success: bool, output_lines: List of strings)
+        :return: List of strings
         """
         start_index = None
         end_index = None
@@ -34,9 +34,11 @@ class ApplierUtil:
                 end_index = i
                 break
 
+        print(f"[ApplierUtil]:start_index={start_index}, end_index={end_index}")
+
         # Ensure conflict markers are found
         if start_index is None or end_index is None:
-            return False, input_src_lines
+            return input_src_lines
 
         # Scan for common margin lines at the beginning and end
         pre_margin_index = start_index - 1
@@ -46,34 +48,48 @@ class ApplierUtil:
         replace_start_index = 0
         replace_end_index = len(replace_lines) - 1
 
-        while (
-            replace_start_index <= replace_end_index and 
-            pre_margin_index >= 0 and 
-            input_src_lines[pre_margin_index] == replace_lines[replace_start_index]
-        ):
-            pre_margin_index -= 1
-            replace_start_index += 1
+        #while (
+        #    replace_start_index <= replace_end_index and 
+        #    pre_margin_index >= 0 and 
+        #    input_src_lines[pre_margin_index].strip() == replace_lines[replace_start_index].strip()
+        #):
+        #    pre_margin_index -= 1
+        #    replace_start_index += 1
 
-        while (
-            replace_start_index <= replace_end_index and 
-            post_margin_index < len(input_src_lines) and 
-            input_src_lines[post_margin_index] == replace_lines[replace_end_index]
-        ):
-            post_margin_index += 1
-            replace_end_index -= 1
+        for i in range(0, len(replace_lines)):
+            if input_src_lines[pre_margin_index].strip() == replace_lines[i].strip():
+                replace_start_index = i
+                break
 
-        # Check if any conflict markers remain in the replacement lines
-        if any(
-            line.startswith("<<<<<<<") or line.startswith("=======") or line.startswith(">>>>>>>") 
-            for line in replace_lines[replace_start_index:replace_end_index + 1]
-        ):
-            return False, input_src_lines
+        #while (
+        #    replace_start_index <= replace_end_index and 
+        #    post_margin_index < len(input_src_lines) and 
+        #    input_src_lines[post_margin_index].strip() == replace_lines[replace_end_index].strip()
+        #):
+        #    post_margin_index += 1
+        #    replace_end_index -= 1
+
+        for i in range(replace_start_index, len(replace_lines)):
+            if input_src_lines[post_margin_index].strip() == replace_lines[i].strip():
+                replace_end_index = i
+
+        print(f"[ApplierUtil]:pre_margin_index={pre_margin_index}, post_margin_index={post_margin_index}")
+        print(f"[ApplierUtil]:replace_start_index={replace_start_index}, replace_end_index={replace_end_index}")
+
+        ## Check if any conflict markers remain in the replacement lines
+        #if any(
+        #    line.startswith("<<<<<<<") or line.startswith("=======") or line.startswith(">>>>>>>") 
+        #    for line in replace_lines[replace_start_index:replace_end_index + 1]
+        #):
+        #    return input_src_lines
 
         # Replace the conflict section with the resolved lines
         output_lines = (
-            input_src_lines[:pre_margin_index + 1] +
-            replace_lines[replace_start_index:replace_end_index + 1] +
+            input_src_lines[:pre_margin_index] +
+            replace_lines[replace_start_index:replace_end_index] +
             input_src_lines[post_margin_index:]
         )
 
-        return True, output_lines
+        print(f"[ApplierUtil]:SUCCESS to replace")
+
+        return output_lines

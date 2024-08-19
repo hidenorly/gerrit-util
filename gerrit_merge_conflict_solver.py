@@ -148,45 +148,42 @@ class MergeConflictSolver:
     def __init__(self, client, promptfile=None):
         self.prompts, _ = GptHelper.read_prompt_json(promptfile)
         self.client = client
-        if not "resolver" in self.prompts or not "checker" in self.prompts:
-            self.prompts = None
 
+    def _generate_prompt(self, query_key, replace_keydata={}):
+        system_prompt = ""
+        user_prompt = ""
+
+        if self.prompts and query_key in self.prompts:
+            system_prompt = self.prompts[query_key]["system_prompt"]
+            user_prompt = self.additional_user_prompt + self.prompts[query_key]["user_prompt"]
+            for replace_keyword, replace_data in replace_keydata.items():
+                user_prompt = user_prompt.replace(replace_keyword, replace_data)
+
+        return system_prompt, user_prompt
+
+    def _query(self, system_prompt, user_prompt):
+        content = None
+        response = None
+
+        if self.client and system_prompt and user_prompt:
+            try:
+                content, response = self.client.query(system_prompt, user_prompt)
+            except:
+                pass
+            return content, response
+
+        return None, None
+
+
+    # for 1st level LLM "reolver" in the prompt .json
     def _query_conflict_resolution(self, conflict_section):
-        content = None
-        response = None
+        system_prompt, user_prompt = self._generate_prompt("resolver", {"[MERGE_CONFLICT]":conflict_section})
+        return self._query(system_prompt, user_prompt)
 
-        if self.prompts and self.client:
-            system_prompt = self.prompts["resolver"]["system_prompt"]
-            user_prompt = self.additional_user_prompt + self.prompts["resolver"]["user_prompt"]
-            user_prompt = user_prompt.replace("[MERGE_CONFLICT]", conflict_section)
-
-            try:
-                content, response = self.client.query(system_prompt, user_prompt)
-            except:
-                pass
-            return content, response
-
-        return None, None
-
+    # for 2nd level LLM "checker" in the prompt .json
     def _query_checker(self, conflict_section, resolution_diff):
-        content = None
-        response = None
-
-        if self.prompts and self.client:
-            system_prompt = self.prompts["checker"]["system_prompt"]
-            user_prompt = self.prompts["checker"]["user_prompt"]
-            user_prompt = user_prompt.replace("[DIFF_OUTPUT]", resolution_diff)
-            user_prompt = user_prompt.replace("[MERGE_CONFLICT]", conflict_section)
-            print("\n---2nd level LLM consideration------")
-            print(user_prompt)
-
-            try:
-                content, response = self.client.query(system_prompt, user_prompt)
-            except:
-                pass
-            return content, response
-
-        return None, None
+        system_prompt, user_prompt = self._generate_prompt("checker", {"[DIFF_OUTPUT]":resolution_diff, "[MERGE_CONFLICT]":conflict_section})
+        return self._query(system_prompt, user_prompt)
 
     def _check_valid_merge_conflict_resolution(self, lines, is_fallback=True):
         if not lines:
@@ -199,6 +196,7 @@ class MergeConflictSolver:
             '=======': False,
             '>>>>>>> ': False
         }
+        # check -<<<<<<<, -======= and ->>>>>>> are included as diff
         for line in _lines:
             line = line.strip()
             for key, status in check_items.items():
@@ -211,6 +209,7 @@ class MergeConflictSolver:
             if isAllFound:
                 return True
 
+        # check the given lines do NOT include any <<<<<<<, ======= and >>>>>>>
         if is_fallback:
             for key in check_items.keys():
                 if key in lines:
@@ -251,15 +250,28 @@ class MergeConflictSolver:
 
         self.additional_user_prompt = ""
 
+        # is_fallback==True means to accept non-diff style (replace style)
+        is_fallback = False
+        if self.prompts and "is_replace_allowed" in self.prompts:
+            if self.prompts["is_replace_allowed"]=="true":
+                is_fallback=True
+
         while True:
+            # 1st level
             content, response = self._query_conflict_resolution(conflict_section)
+            resolution_code = None
             if content:
-                if not self._check_valid_merge_conflict_resolution(content, False):
-                    resolution_diff = self.get_code_section(content)
-                    if resolution_diff:
-                        content, response = self._query_checker(conflict_section, resolution_diff)
+                resolution_code = self.get_code_section(content)
+            # 2nd level is necessary
+            if resolution_code:
+                if not self._check_valid_merge_conflict_resolution(resolution_code, is_fallback):
+                    _content, _response = self._query_checker(conflict_section, resolution_code)
+                    if _content and _response:
+                        resolution_code = self.get_code_section(_content)
+                        content = _content
+                        response = _response
             retry_count += 1
-            if self._check_valid_merge_conflict_resolution(content) or retry_count>3:
+            if self._check_valid_merge_conflict_resolution(resolution_code, is_fallback) or retry_count>3:
                 break
             else:
                 print(f"ERROR!!!: LLM didn't provide merge conflict resolution. Retry:{retry_count}")

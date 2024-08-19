@@ -73,7 +73,7 @@ class MergeConflictResolutionApplier:
         results = []
         for line in diff_lines:
             _line = line.strip()
-            if not _line.startswith(("@@ ", "--- ", "+++ ")):
+            if not _line.startswith(("@@@ ", "@@ ", "--- ", "+++ ")):
                 results.append(line)
         return results
 
@@ -179,14 +179,14 @@ class MergeConflictResolutionApplier:
         return result
 
 
-    def solve_merge_conflict(self, current_file_line, conflicted_sections, resolution_diff_lines, resolutions):
+    def solve_merge_conflict(self, current_file_lines, conflicted_sections, resolution_diff_lines, resolutions):
         result = None
 
         # clean up unnecessary markers such as @, etc.
         resolution_diff_lines = self.clean_up_diff(resolution_diff_lines)
 
         # try with diff
-        resolved_lines_as_entire_diff = self.apply_true_diff(current_file_line, resolution_diff_lines)
+        resolved_lines_as_entire_diff = self.apply_true_diff(current_file_lines, resolution_diff_lines)
         _resolved_lines_as_entire_diff = self.just_in_case_cleanup(resolved_lines_as_entire_diff)
 
         # try with replacer per section
@@ -201,15 +201,20 @@ class MergeConflictResolutionApplier:
 
                 if self.is_diff(_resolution_lines):
                     # if diff_case (+/-), convert it to replace_section
+                    #print(f"solve_merge_conflict: FOUND DIFF\n{_resolution_lines}")
                     replace_sections.append( self.apply_true_diff(_conflict_section, _resolution_lines) )
                 else:
                     # no diff, it should be replace_section
+                    #print(f"solve_merge_conflict: FOUND REPLACE SECTION\n{_resolution_lines}")
                     replace_sections.append( _resolution_lines )
 
-        # replace current_file_line with replace_sections
-        for replace_section in replace_sections:
-            current_file_line = ApplierUtil.replace_conflict_section(current_file_line, replace_section)
-        resolved_lines_as_replacer = current_file_line
+        # replace current_file_lines with replace_sections
+        for replace_section_lines in replace_sections:
+            #print(f"solve_merge_conflict: TRY to REPLACE the SECTION:\n{replace_section_lines}")
+            current_file_lines = ApplierUtil.replace_conflict_section(current_file_lines, replace_section_lines)
+            #print("\nRESOLVED CODE is ")
+            #print("\n".join(current_file_lines))
+        resolved_lines_as_replacer = current_file_lines
         _resolved_lines_as_replacer = self.just_in_case_cleanup(resolved_lines_as_replacer)
 
         result = resolved_lines_as_replacer # default
