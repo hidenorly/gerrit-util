@@ -13,6 +13,52 @@
 #   limitations under the License.
 
 class ApplierUtil:
+    def _find_front(input_src_lines, replace_lines, pre_margin_index):
+        replace_start_index = 0
+        new_pre_margin_index = pre_margin_index
+
+        replace_search_end_index = len(replace_lines) - 1
+
+        is_found = False
+        for m in range(0, pre_margin_index):
+            _input_search_index = pre_margin_index - m
+            for i in range(0, replace_search_end_index+1):
+                _replace_search_index = replace_search_end_index - i
+                _input_line = input_src_lines[_input_search_index].strip()
+                _replace_line = replace_lines[_replace_search_index].strip()
+                if _input_line and _replace_line and _input_line == _replace_line:
+                    is_found = True
+                    replace_start_index = _replace_search_index
+                    replace_search_end_index = _replace_search_index
+                    new_pre_margin_index = _input_search_index
+                    break
+            if not is_found:
+                break
+
+        return new_pre_margin_index, replace_start_index
+
+
+    def _find_tail(input_src_lines, replace_lines, replace_start_index, post_margin_index):
+        replace_end_index = len(replace_lines) - 1
+        new_replace_end_index = replace_start_index
+        new_post_margin_index = post_margin_index
+
+        is_found = False
+        for _input_search_index in range(post_margin_index, len(input_src_lines)):
+            for _replace_search_index in range(new_replace_end_index, replace_end_index):
+                _input_line = input_src_lines[_input_search_index].strip()
+                _replace_line = replace_lines[_replace_search_index].strip()
+                if _input_line and _replace_line and _input_line == _replace_line:
+                    is_found = True
+                    new_replace_end_index = _replace_search_index
+                    new_post_margin_index = _input_search_index
+                    break
+            if is_found: # "break if not is_found" can extend the lines of replace_lines but need to debug
+                break
+
+        return new_post_margin_index, new_replace_end_index
+
+
     def replace_conflict_section(input_src_lines, replace_lines):
         """
         Replace the conflict section in input_src_lines with the resolved lines from replace_lines, considering margin lines.
@@ -34,7 +80,7 @@ class ApplierUtil:
                 end_index = i
                 break
 
-        print(f"[ApplierUtil]:start_index={start_index}, end_index={end_index}")
+        #print(f"[ApplierUtil]:start_index={start_index}, end_index={end_index}")
 
         # Ensure conflict markers are found
         if start_index is None or end_index is None:
@@ -45,43 +91,10 @@ class ApplierUtil:
         post_margin_index = end_index + 1
 
         # Find the first and last common margin lines
-        replace_start_index = 0
-        replace_end_index = len(replace_lines) - 1
-
-        #while (
-        #    replace_start_index <= replace_end_index and 
-        #    pre_margin_index >= 0 and 
-        #    input_src_lines[pre_margin_index].strip() == replace_lines[replace_start_index].strip()
-        #):
-        #    pre_margin_index -= 1
-        #    replace_start_index += 1
-
-        for i in range(0, len(replace_lines)):
-            if input_src_lines[pre_margin_index].strip() == replace_lines[i].strip():
-                replace_start_index = i
-                break
-
-        #while (
-        #    replace_start_index <= replace_end_index and 
-        #    post_margin_index < len(input_src_lines) and 
-        #    input_src_lines[post_margin_index].strip() == replace_lines[replace_end_index].strip()
-        #):
-        #    post_margin_index += 1
-        #    replace_end_index -= 1
-
-        for i in range(replace_start_index, len(replace_lines)):
-            if input_src_lines[post_margin_index].strip() == replace_lines[i].strip():
-                replace_end_index = i
-
-        print(f"[ApplierUtil]:pre_margin_index={pre_margin_index}, post_margin_index={post_margin_index}")
-        print(f"[ApplierUtil]:replace_start_index={replace_start_index}, replace_end_index={replace_end_index}")
-
-        ## Check if any conflict markers remain in the replacement lines
-        #if any(
-        #    line.startswith("<<<<<<<") or line.startswith("=======") or line.startswith(">>>>>>>") 
-        #    for line in replace_lines[replace_start_index:replace_end_index + 1]
-        #):
-        #    return input_src_lines
+        pre_margin_index, replace_start_index = ApplierUtil._find_front(input_src_lines, replace_lines, pre_margin_index)
+        post_margin_index, replace_end_index = ApplierUtil._find_tail(input_src_lines, replace_lines, replace_start_index, post_margin_index)
+        #print(f"[ApplierUtil]:pre_margin_index={pre_margin_index}, post_margin_index={post_margin_index}")
+        #print(f"[ApplierUtil]:replace_start_index={replace_start_index}, replace_end_index={replace_end_index}")
 
         # Replace the conflict section with the resolved lines
         output_lines = (
@@ -90,6 +103,6 @@ class ApplierUtil:
             input_src_lines[post_margin_index:]
         )
 
-        print(f"[ApplierUtil]:SUCCESS to replace")
+        #print(f"[ApplierUtil]:SUCCESS to replace")
 
         return output_lines

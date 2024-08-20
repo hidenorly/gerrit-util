@@ -25,8 +25,8 @@ class ConflictExtractor:
     def __init__(self, path, margin_line_count=10):
         self.path = path
         self.margin_line_count = margin_line_count
-        self.conflict_start_pattern = re.compile(r'<{7}')
-        self.conflict_end_pattern = re.compile(r'>{7}')
+        self.conflict_start_pattern = re.compile(r'^<{7}')
+        self.conflict_end_pattern = re.compile(r'^>{7}')
 
     def _find_margin_without_another_conflict_section_forward(self, lines, i):
         target = max(0, i - self.margin_line_count)

@@ -191,6 +191,7 @@ class MergeConflictResolutionApplier:
 
         # try with replacer per section
         # create replace sections
+        is_diff_section_found = False
         replace_sections=[]
         length_resolutions = len(resolutions)
         length_conflicted_sections = len(conflicted_sections)
@@ -203,6 +204,7 @@ class MergeConflictResolutionApplier:
                     # if diff_case (+/-), convert it to replace_section
                     #print(f"solve_merge_conflict: FOUND DIFF\n{_resolution_lines}")
                     replace_sections.append( self.apply_true_diff(_conflict_section, _resolution_lines) )
+                    is_diff_section_found = True
                 else:
                     # no diff, it should be replace_section
                     #print(f"solve_merge_conflict: FOUND REPLACE SECTION\n{_resolution_lines}")
@@ -222,6 +224,8 @@ class MergeConflictResolutionApplier:
         # check with the best result
         if len(resolved_lines_as_entire_diff) == len(_resolved_lines_as_entire_diff):
             result = resolved_lines_as_entire_diff
+            if is_diff_section_found:
+                return result
         if len(resolved_lines_as_replacer) == len(_resolved_lines_as_replacer):
             result = resolved_lines_as_replacer
         # TODO: If not full, result should be None as failure...
@@ -351,7 +355,7 @@ def main():
                     #print('\n'.join(target_file_lines))
                     if args.apply:
                         FileUtils.save_modified_code(file_name, target_file_lines)
-                exit()
+                #exit()
 
 
 if __name__ == "__main__":
