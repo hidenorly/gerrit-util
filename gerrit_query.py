@@ -40,18 +40,26 @@ class GerritUtil:
         return date.strftime("%Y-%m-%d %H:%M:%S +0900")
 
     @staticmethod
-    def query(ssh_target_host, branch, status, since):
+    def query(ssh_target_host, branch, status, since, numbers):
         result = {}
         status_query = ' OR '.join(f'status:{s}' for s in status.split('|'))
         since_date = GerritUtil.parse_since(since)
 
         cmd = [
-            'ssh', ssh_target_host, 'gerrit', 'query',
-            f'branch:{branch}',
-            f'AND ({status_query})',
-            f'\'AND after:\"{since_date}\"\'',
-            '--format=json'
+            'ssh', ssh_target_host, 'gerrit', 'query', '--format=json'
         ]
+        is_number = False
+        for number in numbers:
+            if number:
+                cmd.append(number)
+                is_number = True
+
+        if not is_number:
+            cmd.extend([
+                f'branch:{branch}',
+                f'AND ({status_query})',
+                f'\'AND after:\"{since_date}\"\'',
+            ])
 
         _result = subprocess.run(cmd, capture_output=True, text=True)
         
@@ -97,9 +105,10 @@ def main():
     parser.add_argument('-b', '--branch', default=os.getenv("GERRIT_BRANCH", 'main'), help='Branch to query')
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
+    parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
     args = parser.parse_args()
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since)
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
     for project, data in result.items():
         for branch, theData in data.items():
             for _data in theData:

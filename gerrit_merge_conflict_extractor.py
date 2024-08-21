@@ -32,7 +32,7 @@ class ConflictExtractor:
         target = max(0, i - self.margin_line_count)
         while i>target:
             if self.conflict_end_pattern.search(lines[i]):
-                return i
+                return i+1
             i -= 1
         return i
 
@@ -40,7 +40,7 @@ class ConflictExtractor:
         target = min(line_counts, i + self.margin_line_count + 1)
         while i<target:
             if self.conflict_start_pattern.search(lines[i]):
-                return i+1
+                return i-1
             i += 1
         return i
 
@@ -50,30 +50,53 @@ class ConflictExtractor:
                 return i
         return None
 
+    def _merge_sections(self, conflict_section_pos):
+        merged_conflict_section_pos = []
+        sorted_conflict_section_pos = sorted(conflict_section_pos, key=lambda x: x[0])
+        if len(sorted_conflict_section_pos)>=2:
+            merged_conflict_section_pos.append(sorted_conflict_section_pos[0])
+            
+            for pos in sorted_conflict_section_pos[1:]:
+                if pos[0] <= merged_conflict_section_pos[-1][1]:
+                    merged_conflict_section_pos[-1][1] = max(pos[1], merged_conflict_section_pos[-1][1])
+                else:
+                    merged_conflict_section_pos.append(pos)
+        else:
+            merged_conflict_section_pos = sorted_conflict_section_pos
+        
+        return merged_conflict_section_pos
+
     def _extract_conflicts(self, file_path):
         lines = []
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except UnicodeDecodeError:
-            pass
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+            except UnicodeDecodeError:
+                pass
 
         conflicts = []
         i = 0
         line_counts = len(lines)
+        conflict_section_pos = []
         while i < line_counts:
             if self.conflict_start_pattern.search(lines[i]):
                 conflict_start = self._find_margin_without_another_conflict_section_forward(lines, i)
                 conflict_end = self._find_conflict_end(lines, i, line_counts)
                 if conflict_end is not None:
                     conflict_end = self._find_margin_without_another_conflict_section_backward(lines, conflict_end, line_counts)
-                    conflict_section = ''.join(lines[conflict_start:conflict_end])
-                    conflicts.append(conflict_section)
+                    conflict_section_pos.append([conflict_start, conflict_end])
                     i = conflict_end
                 else:
                     i += 1
             else:
                 i += 1
+
+        conflict_section_pos = self._merge_sections(conflict_section_pos)
+
+        for pos in conflict_section_pos:
+            conflict_section = ''.join(lines[pos[0]:pos[1]])
+            conflicts.append({"start":pos[0], "end":pos[1], "section": conflict_section})
 
         return conflicts
 
@@ -93,12 +116,14 @@ def main():
     parser.add_argument('-b', '--branch', default=os.getenv("GERRIT_BRANCH", 'main'), help='Branch to query')
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
+    parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
+
     parser.add_argument('-d', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
     args = parser.parse_args()
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since)
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
     for project, data in result.items():
         for branch, theData in data.items():
             for _data in theData:
@@ -114,7 +139,7 @@ def main():
                     print(file_name)
                     for i,section in enumerate(sections):
                         print(f'---section----{i}')
-                        print(section)
+                        print(section["section]"])
 
 if __name__ == "__main__":
     main()

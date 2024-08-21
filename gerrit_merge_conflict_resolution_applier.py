@@ -24,6 +24,7 @@ from gerrit_merge_conflict_extractor import ConflictExtractor
 from gerrit_merge_conflict_solver import GptHelper
 from gerrit_merge_conflict_solver import CaludeGptHelper
 from gerrit_merge_conflict_solver import MergeConflictSolver
+from ApplierUtil import ApplierUtil
 
 class MergeConflictResolutionApplier:
     def __init__(self, margin_line_count):
@@ -72,7 +73,7 @@ class MergeConflictResolutionApplier:
         results = []
         for line in diff_lines:
             _line = line.strip()
-            if not _line.startswith(("@@ ", "--- ", "+++ ")):
+            if not _line.startswith(("@@@ ", "@@ ", "--- ", "+++ ")):
                 results.append(line)
         return results
 
@@ -169,10 +170,67 @@ class MergeConflictResolutionApplier:
                 result.append(line)
         return result
 
-    def solve_merge_conflict(self, current_file_line, conflicted_sections, resolution_diff_lines):
-        # This relies on diff output
+    def is_diff(self, diff_lines):
+        result = False
+        for line in diff_lines:
+            if line.startswith(("+","-")):
+                result = True
+                break
+        return result
+
+
+    def solve_merge_conflict(self, current_file_lines, conflicted_sections, resolution_diff_lines, resolutions):
+        result = None
+
+        # clean up unnecessary markers such as @, etc.
         resolution_diff_lines = self.clean_up_diff(resolution_diff_lines)
-        return self.apply_true_diff(current_file_line, resolution_diff_lines)
+
+        # try with diff
+        resolved_lines_as_entire_diff = self.apply_true_diff(current_file_lines, resolution_diff_lines)
+        _resolved_lines_as_entire_diff = self.just_in_case_cleanup(resolved_lines_as_entire_diff)
+
+        # try with replacer per section
+        # create replace sections
+        is_diff_section_found = False
+        replace_sections=[]
+        length_resolutions = len(resolutions)
+        length_conflicted_sections = len(conflicted_sections)
+        if length_resolutions == length_conflicted_sections:
+            for i in range(0, length_resolutions):
+                _resolution_lines = resolutions[i]
+                _conflict_section = conflicted_sections[i]
+
+                if self.is_diff(_resolution_lines):
+                    # if diff_case (+/-), convert it to replace_section
+                    #print(f"solve_merge_conflict: FOUND DIFF\n{_resolution_lines}")
+                    replace_sections.append( self.apply_true_diff(_conflict_section, _resolution_lines) )
+                    is_diff_section_found = True
+                else:
+                    # no diff, it should be replace_section
+                    #print(f"solve_merge_conflict: FOUND REPLACE SECTION\n{_resolution_lines}")
+                    replace_sections.append( _resolution_lines )
+
+        # replace current_file_lines with replace_sections
+        for replace_section_lines in replace_sections:
+            #print(f"solve_merge_conflict: TRY to REPLACE the SECTION:\n{replace_section_lines}")
+            current_file_lines = ApplierUtil.replace_conflict_section(current_file_lines, replace_section_lines)
+            #print("\nRESOLVED CODE is ")
+            #print("\n".join(current_file_lines))
+        resolved_lines_as_replacer = current_file_lines
+        _resolved_lines_as_replacer = self.just_in_case_cleanup(resolved_lines_as_replacer)
+
+        result = resolved_lines_as_replacer # default
+
+        # check with the best result
+        if len(resolved_lines_as_entire_diff) == len(_resolved_lines_as_entire_diff):
+            result = resolved_lines_as_entire_diff
+            if is_diff_section_found:
+                return result
+        if len(resolved_lines_as_replacer) == len(_resolved_lines_as_replacer):
+            result = resolved_lines_as_replacer
+        # TODO: If not full, result should be None as failure...
+
+        return result
 
 class FileUtils:
     def get_file_line_end_code(file_path):
@@ -219,6 +277,8 @@ def main():
     parser.add_argument('-b', '--branch', default=os.getenv("GERRIT_BRANCH", 'main'), help='Branch to query')
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
+    parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
+
     parser.add_argument('-w', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
@@ -255,7 +315,7 @@ def main():
     solver = MergeConflictSolver(gpt_client, args.promptfile)
     applier = MergeConflictResolutionApplier(args.marginline)
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since)
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
     for project, data in result.items():
         for branch, theData in data.items():
             for _data in theData:
@@ -266,17 +326,15 @@ def main():
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline)
-                _conflict_detector = ConflictExtractor(download_path, 1)
                 conflict_sections = conflict_detector.get_conflicts()
-                _conflict_sections = _conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
                     # get resolutions for each conflicted area
                     resolutions = []
                     for i,section in enumerate(sections):
                         print(f'---conflict_section---{i}')
-                        print(_conflict_sections[file_name][i])
-                        resolution, _full_response = solver.query(section)
+                        print(section["section"])
+                        resolution, _full_response = solver.query(section["section"])
                         print(f'---resolution---{i}')
                         print(resolution)
                         codes = applier.get_code_section(resolution)
@@ -285,7 +343,7 @@ def main():
                     # apply resolutions for the file
                     target_file_lines = applier.read_file(file_name)
                     resolutions_lines = list(itertools.chain(*resolutions))
-                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines)
+                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions)
                     _target_file_lines = applier.just_in_case_cleanup(target_file_lines)
                     if _target_file_lines != target_file_lines:
                         print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip this file")
@@ -297,7 +355,7 @@ def main():
                     #print('\n'.join(target_file_lines))
                     if args.apply:
                         FileUtils.save_modified_code(file_name, target_file_lines)
-                exit()
+                #exit()
 
 
 if __name__ == "__main__":
