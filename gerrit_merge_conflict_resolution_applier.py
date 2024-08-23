@@ -179,17 +179,17 @@ class MergeConflictResolutionApplier:
         return result
 
 
-    def solve_merge_conflict(self, current_file_lines, conflicted_sections, resolution_diff_lines, resolutions):
+    def solve_merge_conflict(self, current_file_lines, conflicted_sections, resolution_diff_lines, resolutions, resolutions_mapper):
         result = None
 
         # clean up unnecessary markers such as @, etc.
         resolution_diff_lines = self.clean_up_diff(resolution_diff_lines)
 
-        # try with diff
+        # --- try with diff
         resolved_lines_as_entire_diff = self.apply_true_diff(current_file_lines, resolution_diff_lines)
         _resolved_lines_as_entire_diff = self.just_in_case_cleanup(resolved_lines_as_entire_diff)
 
-        # try with replacer per section
+        # --- try with replacer per section
         # create replace sections
         is_diff_section_found = False
         replace_sections=[]
@@ -213,7 +213,12 @@ class MergeConflictResolutionApplier:
         # replace current_file_lines with replace_sections
         for replace_section_lines in replace_sections:
             #print(f"solve_merge_conflict: TRY to REPLACE the SECTION:\n{replace_section_lines}")
-            current_file_lines = ApplierUtil.replace_conflict_section(current_file_lines, replace_section_lines)
+            info = None
+            flatten_replace_section_lines = str(replace_section_lines)
+            if flatten_replace_section_lines in resolutions_mapper:
+                info = resolutions_mapper[flatten_replace_section_lines]
+            _replace_section_lines = self.clean_up_diff(replace_section_lines)
+            current_file_lines = ApplierUtil.replace_conflict_section(current_file_lines, _replace_section_lines, info)
             #print("\nRESOLVED CODE is ")
             #print("\n".join(current_file_lines))
         resolved_lines_as_replacer = current_file_lines
@@ -329,23 +334,44 @@ def main():
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
+                    target_file_lines = applier.read_file(file_name)
+                    _target_file_lines = []
+
                     # get resolutions for each conflicted area
                     resolutions = []
+                    _resolutions = []
+                    resolution_section_mapper={}
+                    last_pos = 0
                     for i,section in enumerate(sections):
+                        start_pos = section["start"]
+                        end_pos = section["end"]
+                        orig_start_pos = section["orig_start"]
+                        orig_end_pos = section["orig_end"]
+                        conflict_section_codes = section["section"]
                         print(f'---conflict_section---{i}')
-                        print(section["section"])
-                        resolution, _full_response = solver.query(section["section"])
+                        print(conflict_section_codes)
+                        resolution, _full_response = solver.query(conflict_section_codes)
                         print(f'---resolution---{i}')
                         print(resolution)
                         codes = applier.get_code_section(resolution)
                         resolutions.extend( codes )
+                        for _code in codes:
+                            _code = str(_code)
+                            resolution_section_mapper[_code] = [start_pos, end_pos, orig_start_pos, orig_end_pos]
+                            if orig_start_pos!=None and orig_start_pos>=start_pos:
+                                resolution_section_mapper[_code].append(target_file_lines[start_pos:orig_start_pos+1])
+                            else:
+                                resolution_section_mapper[_code].append([target_file_lines[start_pos]])
+                            if orig_end_pos!=None and orig_end_pos<=end_pos:
+                                resolution_section_mapper[_code].append(target_file_lines[orig_end_pos:end_pos])
+                            else:
+                                resolution_section_mapper[_code].append([target_file_lines[end_pos]])
 
                     # apply resolutions for the file
-                    target_file_lines = applier.read_file(file_name)
                     resolutions_lines = list(itertools.chain(*resolutions))
-                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions)
+                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions, resolution_section_mapper)
                     _target_file_lines = applier.just_in_case_cleanup(target_file_lines)
-                    if _target_file_lines != target_file_lines:
+                    if len(_target_file_lines) != len(target_file_lines):
                         print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip this file")
                         #break
                         #the following is for debug

@@ -59,6 +59,8 @@ class ConflictExtractor:
             for pos in sorted_conflict_section_pos[1:]:
                 if pos[0] <= merged_conflict_section_pos[-1][1]:
                     merged_conflict_section_pos[-1][1] = max(pos[1], merged_conflict_section_pos[-1][1])
+                    merged_conflict_section_pos[-1][2] = min(pos[2], merged_conflict_section_pos[-1][2]) # orig_start
+                    merged_conflict_section_pos[-1][3] = max(pos[3], merged_conflict_section_pos[-1][3]) # orig_end
                 else:
                     merged_conflict_section_pos.append(pos)
         else:
@@ -79,13 +81,21 @@ class ConflictExtractor:
         i = 0
         line_counts = len(lines)
         conflict_section_pos = []
+        _original_conflict_start = None
+        _original_conflict_end = None
         while i < line_counts:
             if self.conflict_start_pattern.search(lines[i]):
+                if not _original_conflict_start:
+                    _original_conflict_start = i
                 conflict_start = self._find_margin_without_another_conflict_section_forward(lines, i)
                 conflict_end = self._find_conflict_end(lines, i, line_counts)
+                if not _original_conflict_end:
+                    _original_conflict_end = conflict_end
                 if conflict_end is not None:
                     conflict_end = self._find_margin_without_another_conflict_section_backward(lines, conflict_end, line_counts)
-                    conflict_section_pos.append([conflict_start, conflict_end])
+                    conflict_section_pos.append([conflict_start, conflict_end, _original_conflict_start, _original_conflict_end])
+                    _original_conflict_start = None
+                    _original_conflict_end = None
                     i = conflict_end
                 else:
                     i += 1
@@ -96,7 +106,7 @@ class ConflictExtractor:
 
         for pos in conflict_section_pos:
             conflict_section = ''.join(lines[pos[0]:pos[1]])
-            conflicts.append({"start":pos[0], "end":pos[1], "section": conflict_section})
+            conflicts.append({"start":pos[0], "end":pos[1], "section": conflict_section, "orig_start":pos[2], "orig_end":pos[3]})
 
         return conflicts
 
