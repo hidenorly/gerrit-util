@@ -159,16 +159,18 @@ class MergeConflictResolutionApplier:
 
 
     def just_in_case_cleanup(self, resolved_lines):
+        isModified = False
         result = []
         for line in resolved_lines:
             _line = line.strip()
             if _line.startswith("+") or _line.startswith("-"):
                 _line = _line[1:].strip()
             if _line.startswith(">>>>>>> ") or _line.strip()=="=======" or _line.startswith("<<<<<<< "):
+                isModified = True
                 pass
             else:
                 result.append(line)
-        return result
+        return result, isModified
 
     def is_diff(self, diff_lines):
         result = False
@@ -187,7 +189,7 @@ class MergeConflictResolutionApplier:
 
         # --- try with diff
         resolved_lines_as_entire_diff = self.apply_true_diff(current_file_lines, resolution_diff_lines)
-        _resolved_lines_as_entire_diff = self.just_in_case_cleanup(resolved_lines_as_entire_diff)
+        _, is_modified_resolved_lines_as_entire_diff = self.just_in_case_cleanup(resolved_lines_as_entire_diff)
 
         # --- try with replacer per section
         # create replace sections
@@ -222,16 +224,16 @@ class MergeConflictResolutionApplier:
             #print("\nRESOLVED CODE is ")
             #print("\n".join(current_file_lines))
         resolved_lines_as_replacer = current_file_lines
-        _resolved_lines_as_replacer = self.just_in_case_cleanup(resolved_lines_as_replacer)
+        _, is_modified_resolved_lines_as_replacer = self.just_in_case_cleanup(resolved_lines_as_replacer)
 
         result = resolved_lines_as_replacer # default
 
         # check with the best result
-        if len(resolved_lines_as_entire_diff) == len(_resolved_lines_as_entire_diff):
+        if not is_modified_resolved_lines_as_entire_diff:
             result = resolved_lines_as_entire_diff
             if is_diff_section_found:
                 return result
-        if len(resolved_lines_as_replacer) == len(_resolved_lines_as_replacer):
+        if not is_modified_resolved_lines_as_replacer:
             result = resolved_lines_as_replacer
         # TODO: If not full, result should be None as failure...
 
@@ -287,6 +289,7 @@ def main():
     parser.add_argument('-w', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
+    parser.add_argument('-l', '--largerconflictsection', default=False, action='store_true', help='Specify if unify overwrapped sections')
 
     parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3')
     parser.add_argument('-k', '--apikey', action='store', default=None, help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
@@ -330,7 +333,7 @@ def main():
                     print(f'{key}:{value}')
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
-                conflict_detector = ConflictExtractor(download_path, args.marginline)
+                conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
@@ -348,10 +351,10 @@ def main():
                         orig_start_pos = section["orig_start"]
                         orig_end_pos = section["orig_end"]
                         conflict_section_codes = section["section"]
-                        print(f'---conflict_section---{i}')
+                        print(f'---conflict_section---{i} ({file_name})')
                         print(conflict_section_codes)
                         resolution, _full_response = solver.query(conflict_section_codes)
-                        print(f'---resolution---{i}')
+                        print(f'---resolution---{i} ({file_name})')
                         print(resolution)
                         codes = applier.get_code_section(resolution)
                         resolutions.extend( codes )
@@ -370,12 +373,12 @@ def main():
                     # apply resolutions for the file
                     resolutions_lines = list(itertools.chain(*resolutions))
                     target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions, resolution_section_mapper)
-                    _target_file_lines = applier.just_in_case_cleanup(target_file_lines)
-                    if len(_target_file_lines) != len(target_file_lines):
+                    _, is_modified_target_file_lines = applier.just_in_case_cleanup(target_file_lines)
+                    if is_modified_target_file_lines:
                         print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip this file")
                         #break
                         #the following is for debug
-                        target_file_lines = _target_file_lines
+                        #target_file_lines = _
 
                     #print(f'---resolved_full_file---{file_name}')
                     #print('\n'.join(target_file_lines))

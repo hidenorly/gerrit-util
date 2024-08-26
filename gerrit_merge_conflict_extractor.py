@@ -22,9 +22,10 @@ from gerrit_query import GerritUtil
 from gerrit_patch_downloader import GitUtil
 
 class ConflictExtractor:
-    def __init__(self, path, margin_line_count=10):
+    def __init__(self, path, margin_line_count=10, merge_overwrapped_conflict_section=True):
         self.path = path
         self.margin_line_count = margin_line_count
+        self.merge_overwrapped_conflict_section = merge_overwrapped_conflict_section
         self.conflict_start_pattern = re.compile(r'^<{7}')
         self.conflict_end_pattern = re.compile(r'^>{7}')
 
@@ -102,7 +103,8 @@ class ConflictExtractor:
             else:
                 i += 1
 
-        conflict_section_pos = self._merge_sections(conflict_section_pos)
+        if self.merge_overwrapped_conflict_section:
+            conflict_section_pos = self._merge_sections(conflict_section_pos)
 
         for pos in conflict_section_pos:
             conflict_section = ''.join(lines[pos[0]:pos[1]])
@@ -131,6 +133,7 @@ def main():
     parser.add_argument('-d', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
+    parser.add_argument('-l', '--largerconflictsection', default=False, action='store_true', help='Specify if unify overwrapped sections')
     args = parser.parse_args()
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
@@ -143,7 +146,7 @@ def main():
                     print(f'{key}:{value}')
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
-                conflict_detector = ConflictExtractor(download_path, args.marginline)
+                conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)

@@ -68,6 +68,7 @@ def main():
     parser.add_argument('-w', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
+    parser.add_argument('-l', '--largerconflictsection', default=False, action='store_true', help='Specify if unify overwrapped sections')
 
     parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3')
     parser.add_argument('-k', '--apikey', action='store', default=None, help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
@@ -113,35 +114,59 @@ def main():
                     print(f'{key}:{value}')
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
-                conflict_detector = ConflictExtractor(download_path, args.marginline)
+                conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
+                    target_file_lines = applier.read_file(file_name)
+                    _target_file_lines = []
+
                     # get resolutions for each conflicted area
                     resolutions = []
+                    _resolutions = []
+                    resolution_section_mapper={}
+                    last_pos = 0
                     for i,section in enumerate(sections):
-                        print(f'---conflict_section---{i}')
-                        print(section["section"])
-                        resolution, _full_response = solver.query(section["section"])
-                        print(f'---resolution---{i}')
+                        start_pos = section["start"]
+                        end_pos = section["end"]
+                        orig_start_pos = section["orig_start"]
+                        orig_end_pos = section["orig_end"]
+                        conflict_section_codes = section["section"]
+                        print(f'---conflict_section---{i} ({file_name})')
+                        print(conflict_section_codes)
+                        resolution, _full_response = solver.query(conflict_section_codes)
+                        print(f'---resolution---{i} ({file_name})')
                         print(resolution)
                         codes = applier.get_code_section(resolution)
                         resolutions.extend( codes )
+                        for _code in codes:
+                            _code = str(_code)
+                            resolution_section_mapper[_code] = [start_pos, end_pos, orig_start_pos, orig_end_pos]
+                            if orig_start_pos!=None and orig_start_pos>=start_pos:
+                                resolution_section_mapper[_code].append(target_file_lines[start_pos:orig_start_pos+1])
+                            else:
+                                resolution_section_mapper[_code].append([target_file_lines[start_pos]])
+                            if orig_end_pos!=None and orig_end_pos<=end_pos:
+                                resolution_section_mapper[_code].append(target_file_lines[orig_end_pos:end_pos])
+                            else:
+                                resolution_section_mapper[_code].append([target_file_lines[end_pos]])
 
                     # apply resolutions for the file
-                    target_file_lines = applier.read_file(file_name)
                     resolutions_lines = list(itertools.chain(*resolutions))
-                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions)
-                    _target_file_lines = applier.just_in_case_cleanup(target_file_lines)
+                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions, resolution_section_mapper)
+                    _, is_modified_target_file_lines = applier.just_in_case_cleanup(target_file_lines)
+                    if is_modified_target_file_lines:
+                        print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip this file")
+                        canUpload = False
+                        #break
+                        #the following is for debug
+                        #target_file_lines = _
+
                     #print(f'---resolved_full_file---{file_name}')
                     #print('\n'.join(target_file_lines))
-                    if _target_file_lines != target_file_lines:
-                        print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip to upload this")
-                        target_file_lines = _target_file_lines
-                        canUpload = False
-
                     if args.apply or args.upload:
                         FileUtils.save_modified_code(file_name, target_file_lines)
+
                 if canUpload and args.upload:
                     GerritUploader.upload(os.path.join(download_path, _data["project_dir"]), branch)
                 exit() # for debug

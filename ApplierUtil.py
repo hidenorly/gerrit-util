@@ -118,8 +118,8 @@ class ApplierUtil:
             margined_end_index = end_index + 1
             end_index = end_index - end_markers_length + 1
         else:
-            start_index = None
-            end_index = None
+            #start_index = None
+            #end_index = None
             margined_start_index = None
             margined_end_index = None
 
@@ -142,9 +142,10 @@ class ApplierUtil:
 
         # Ensure conflict markers are found
         if start_index is None or end_index is None:
+            print(f"[ApplierUtil]:NOT FOUND start_index/end_index!!!!")
             return input_src_lines
 
-        if pre_margin_index!=None or post_margin_index!=None:
+        if pre_margin_index!=None and post_margin_index!=None:
             # Replace the conflict section with the resolved lines
             output_lines = (
                 input_src_lines[:pre_margin_index] +
@@ -158,15 +159,20 @@ class ApplierUtil:
 
         else:
             # fallback mode
+            pre_margin_index = start_index - 1
+            post_margin_index = end_index + 1
+
             # Find the first and last common margin lines
             pre_margin_index, replace_start_index = ApplierUtil._find_front(input_src_lines, replace_lines, pre_margin_index)
-            print(f"[ApplierUtil]:pre_margin_index={pre_margin_index}, post_margin_index={post_margin_index}")
+            print(f"[ApplierUtil]:pre_margin_index={pre_margin_index}, replace_start_index={replace_start_index}")
             if pre_margin_index == None or replace_start_index == None:
+                print(f"[ApplierUtil]:NOT FOUND pre_margin_index/replace_start_index!!!!")
                 return input_src_lines
 
             post_margin_index, replace_end_index = ApplierUtil._find_tail(input_src_lines, replace_lines, replace_start_index, post_margin_index)
-            print(f"[ApplierUtil]:replace_start_index={replace_start_index}, replace_end_index={replace_end_index}")
+            print(f"[ApplierUtil]:post_margin_index={post_margin_index}, replace_end_index={replace_end_index}")
             if post_margin_index == None or replace_end_index == None:
+                print(f"[ApplierUtil]:NOT FOUND post_margin_index/replace_end_index!!!!")
                 return input_src_lines
 
             # Replace the conflict section with the resolved lines
