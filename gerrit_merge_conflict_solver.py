@@ -79,7 +79,7 @@ class GptHelper:
             return result, None
 
 
-class CaludeGptHelper(GptHelper):
+class ClaudeGptHelper(GptHelper):
     def __init__(self, api_key, secret_key, region="us-west-2", model="anthropic.claude-3-sonnet-20240229-v1:0"):
         if api_key and secret_key and region:
             self.client = boto3.client(
@@ -276,7 +276,8 @@ class MergeConflictSolver:
             else:
                 print(f"ERROR!!!: LLM didn't provide merge conflict resolution. Retry:{retry_count}")
                 print(content)
-                self.additional_user_prompt = "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n"
+                if content!=None:
+                    self.additional_user_prompt = "Don't forget to remove '<<<<<<<', '=======', '>>>>>>' with '-' line in the resolution diff\n"
 
         return content, response
 
@@ -292,6 +293,7 @@ def main():
     parser.add_argument('-w', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
+    parser.add_argument('-l', '--largerconflictsection', default=False, action='store_true', help='Specify if unify overwrapped sections')
 
     parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3')
     parser.add_argument('-k', '--apikey', action='store', default=None, help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
@@ -310,7 +312,7 @@ def main():
             args.endpoint = "us-west-2"
         if not args.deployment:
             args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
-        gpt_client = CaludeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
+        gpt_client = ClaudeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
     else:
         if not args.apikey:
             args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
@@ -332,7 +334,7 @@ def main():
                     print(f'{key}:{value}')
                 print("")
                 download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
-                conflict_detector = ConflictExtractor(download_path, args.marginline)
+                conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)

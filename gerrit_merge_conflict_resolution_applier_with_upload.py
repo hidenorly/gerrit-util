@@ -23,7 +23,7 @@ from gerrit_query import GerritUtil
 from gerrit_patch_downloader import GitUtil
 from gerrit_merge_conflict_extractor import ConflictExtractor
 from gerrit_merge_conflict_solver import GptHelper
-from gerrit_merge_conflict_solver import CaludeGptHelper
+from gerrit_merge_conflict_solver import ClaudeGptHelper
 from gerrit_merge_conflict_solver import MergeConflictSolver
 from gerrit_merge_conflict_resolution_applier import MergeConflictResolutionApplier
 from gerrit_merge_conflict_resolution_applier import FileUtils
@@ -90,7 +90,7 @@ def main():
             args.endpoint = "us-west-2"
         if not args.deployment:
             args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
-        gpt_client = CaludeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
+        gpt_client = ClaudeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
     else:
         if not args.apikey:
             args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
