@@ -17,34 +17,15 @@ import os
 import sys
 import re
 import itertools
-import subprocess
 
-from gerrit_query import GerritUtil
-from gerrit_patch_downloader import GitUtil
+from GerritUtil import GerritUtil
+from GitUtil import GitUtil
+from ExecUtil import ExecUtil
+from GptHelper import GptClientFactory, IGpt
 from gerrit_merge_conflict_extractor import ConflictExtractor
-from gerrit_merge_conflict_solver import GptHelper
-from gerrit_merge_conflict_solver import ClaudeGptHelper
 from gerrit_merge_conflict_solver import MergeConflictSolver
 from gerrit_merge_conflict_resolution_applier import MergeConflictResolutionApplier
 from gerrit_merge_conflict_resolution_applier import FileUtils
-
-class ExecUtil:
-    def exec_cmd(exec_cmd, target_folder="."):
-        current_dir = target_folder
-
-        commands = exec_cmd.split(';')
-        for command in commands:
-            command = command.strip()
-            if command.startswith('cd'):
-                # Change directory command
-                new_dir = command[3:].strip()
-                current_dir = os.path.join(current_dir, new_dir)
-            else:
-                # Execute other commands
-                try:
-                    subprocess.run(command, shell=True, check=True, cwd=current_dir)
-                except:
-                    pass
 
 class GerritUploader:
     def upload(target_folder, branch):
@@ -52,9 +33,82 @@ class GerritUploader:
 
         # check the target_folder is git folder
         if os.path.exists(os.path.join(target_folder+"/.git")):
-            ExecUtil.exec_cmd(upload_cmd, target_folder)
+            ExecUtil.exec_cmd_with_cd(upload_cmd, target_folder)
 
         return target_folder
+
+class UploadableChecker:
+    PROMPT_FILE = os.path.join(os.path.dirname(__file__), "git_merge_resolved_checker.json")
+
+    def __init__(self, client=None, promptfile=None):
+        self.system_prompt, self.user_prompt = IGpt.read_prompt_json(UploadableChecker.PROMPT_FILE)
+        self.client = client #GptClientFactory.new_client(args)
+
+    def _generate_prompt(self, replace_keydata={}):
+        system_prompt = self.system_prompt
+        user_prompt = self.user_prompt
+
+        for replace_keyword, replace_data in replace_keydata.items():
+            user_prompt = user_prompt.replace(replace_keyword, replace_data)
+
+        return system_prompt, user_prompt
+
+    def _query(self, system_prompt, user_prompt):
+        content = None
+        response = None
+
+        if self.client and system_prompt and user_prompt:
+            try:
+                print(system_prompt)
+                print(user_prompt)
+                content, response = self.client.query(system_prompt, user_prompt)
+            except:
+                pass
+            return content, response
+
+        return None, None
+
+    def query(self, diff_result):
+        retry_count = 0
+        content = None
+        response = None
+
+        if isinstance(diff_result, list):
+            diff_result = "\n".join(diff_result)
+
+        print(f"{diff_result=}")
+
+        system_prompt, user_prompt = self._generate_prompt({"[GIT_DIFF]":diff_result})
+
+        while True:
+            # 1st level
+            content, response = self._query(system_prompt, user_prompt)
+            print(str(content))
+            retry_count += 1
+            if content.strip().startswith(("YES","NO")) or retry_count>3:
+                break
+            else:
+                print(f"ERROR!!!: LLM didn't expected anser. Retry:{retry_count}")
+                print(content)
+
+        return content, response
+
+
+    def is_diff_ok(self, git_dir, file_path):
+        is_ok = False
+
+        if file_path.startswith(git_dir):
+            file_path = file_path[len(git_dir)+1:]
+
+        print(f"{git_dir=}, {file_path=}")
+
+        diff_result = GitUtil.diff(git_dir, f"HEAD {file_path}")
+        content, response = self.query(diff_result)
+        if content:
+            content = content.strip().upper()
+            is_ok = True if content == "YES" else False
+
+        return is_ok
 
 
 def main():
@@ -82,26 +136,10 @@ def main():
 
     args = parser.parse_args()
 
-    gpt_client = None
-    if args.useclaude:
-        if not args.apikey:
-            args.apikey = os.getenv('AWS_ACCESS_KEY_ID')
-        if not args.endpoint:
-            args.endpoint = "us-west-2"
-        if not args.deployment:
-            args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
-        gpt_client = ClaudeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
-    else:
-        if not args.apikey:
-            args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
-        if not args.endpoint:
-            args.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        if not args.deployment:
-            args.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-        gpt_client = GptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
-
+    gpt_client = GptClientFactory.new_client(args)
     solver = MergeConflictSolver(gpt_client, args.promptfile)
     applier = MergeConflictResolutionApplier(args.marginline)
+    checker = UploadableChecker(gpt_client)
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
     for project, data in result.items():
@@ -113,7 +151,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
+                download_path = GerritUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
@@ -166,6 +204,9 @@ def main():
                     #print('\n'.join(target_file_lines))
                     if args.apply or args.upload:
                         FileUtils.save_modified_code(file_name, target_file_lines)
+                        if not checker.is_diff_ok(download_path, file_name):
+                            print(f"{file_name}'s git diff seems to be NOT OK to git commit; git push")
+                            canUpload = False
 
                 if canUpload and args.upload:
                     GerritUploader.upload(os.path.join(download_path, _data["project_dir"]), branch)

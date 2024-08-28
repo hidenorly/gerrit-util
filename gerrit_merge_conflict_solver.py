@@ -17,136 +17,14 @@ import os
 import re
 import sys
 import json
-from openai import AzureOpenAI
-import logging
-import boto3
-from botocore.exceptions import ClientError
-
-from gerrit_query import GerritUtil
-from gerrit_patch_downloader import GitUtil
+from GerritUtil import GerritUtil
+from GitUtil import GitUtil
+from GptHelper import GptClientFactory, IGpt
 from gerrit_merge_conflict_extractor import ConflictExtractor
-
-class GptHelper:
-    def __init__(self, api_key, endpoint, api_version = "2024-02-01", model = "gpt-35-turbo-instruct"):
-        self.client = AzureOpenAI(
-          api_key = api_key,
-          api_version = api_version,
-          azure_endpoint = endpoint
-        )
-        self.model = model
-
-    def query(self, system_prompt, user_prompt):
-        _messages = []
-        if system_prompt:
-            _messages.append( {"role": "system", "content": system_prompt} )
-        if user_prompt:
-            _messages.append( {"role": "user", "content": user_prompt} )
-
-        response = self.client.chat.completions.create(
-            model= self.model,
-            messages = _messages
-        )
-        return response.choices[0].message.content, response
-
-    @staticmethod
-    def files_reader(files):
-        result = ""
-
-        for path in files:
-            if os.path.exists( path ):
-              with open(path, 'r', encoding='UTF-8') as f:
-                result += f.read()
-
-        return result
-
-    @staticmethod
-    def read_prompt_json(path):
-        system_prompt = ""
-        user_prompt = ""
-        result = {}
-
-        if path and os.path.isfile(path):
-            with open(path, 'r', encoding='UTF-8') as f:
-              result = json.load(f)
-              if "system_prompt" in result:
-                system_prompt = result["system_prompt"]
-              if "user_prompt" in result:
-                user_prompt = result["user_prompt"]
-
-        if system_prompt or user_prompt:
-            return system_prompt, user_prompt
-        else:
-            return result, None
-
-
-class ClaudeGptHelper(GptHelper):
-    def __init__(self, api_key, secret_key, region="us-west-2", model="anthropic.claude-3-sonnet-20240229-v1:0"):
-        if api_key and secret_key and region:
-            self.client = boto3.client(
-                service_name='bedrock-runtime',
-                aws_access_key_id=api_key,
-                aws_secret_access_key=secret_key,
-                region_name=region
-            )
-        else:
-            self.client = boto3.client(service_name='bedrock-runtime')
-
-        self.model = model
-
-    def query(self, system_prompt, user_prompt, max_tokens=200000):
-        if self.client:
-            _message = [{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": user_prompt
-                    }
-                ]
-            }]
-
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": max_tokens,
-                "temperature": 1,
-                "top_p": 0.999,
-                "system": system_prompt,
-                "messages": _message
-            })
-
-            try:
-                response = self.client.invoke_model_with_response_stream(
-                    body=body,
-                    modelId=self.model
-                )
-
-                result = ""
-                status = {}
-
-                for event in response.get("body"):
-                    chunk = json.loads(event["chunk"]["bytes"])
-
-                    if chunk['type'] == 'message_delta':
-                        status = {
-                            "stop_reason": chunk['delta']['stop_reason'],
-                            "stop_sequence": chunk['delta']['stop_sequence'],
-                            "output_tokens": chunk['usage']['output_tokens'],
-                        }
-                    if chunk['type'] == 'content_block_delta':
-                        if chunk['delta']['type'] == 'text_delta':
-                            result += chunk['delta']['text']
-
-                return result, status
-
-            except ClientError as err:
-                message = err.response["Error"]["Message"]
-                print(f"A client error occurred: {message}")
-        return None, None
-
 
 class MergeConflictSolver:
     def __init__(self, client, promptfile=None):
-        self.prompts, _ = GptHelper.read_prompt_json(promptfile)
+        self.prompts, _ = IGpt.read_prompt_json(promptfile)
         self.client = client
 
     def _generate_prompt(self, query_key, replace_keydata={}):
@@ -304,24 +182,7 @@ def main():
 
     args = parser.parse_args()
 
-    gpt_client = None
-    if args.useclaude:
-        if not args.apikey:
-            args.apikey = os.getenv('AWS_ACCESS_KEY_ID')
-        if not args.endpoint:
-            args.endpoint = "us-west-2"
-        if not args.deployment:
-            args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
-        gpt_client = ClaudeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
-    else:
-        if not args.apikey:
-            args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
-        if not args.endpoint:
-            args.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        if not args.deployment:
-            args.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-        gpt_client = GptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
-
+    gpt_client = GptClientFactory.new_client(args)
     solver = MergeConflictSolver(gpt_client, args.promptfile)
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
@@ -333,7 +194,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
+                download_path = GerritUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():

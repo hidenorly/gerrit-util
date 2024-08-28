@@ -18,11 +18,10 @@ import sys
 import re
 import itertools
 
-from gerrit_query import GerritUtil
-from gerrit_patch_downloader import GitUtil
+from GerritUtil import GerritUtil
+from GitUtil import GitUtil
+from GptHelper import GptClientFactory
 from gerrit_merge_conflict_extractor import ConflictExtractor
-from gerrit_merge_conflict_solver import GptHelper
-from gerrit_merge_conflict_solver import ClaudeGptHelper
 from gerrit_merge_conflict_solver import MergeConflictSolver
 from ApplierUtil import ApplierUtil
 
@@ -302,24 +301,7 @@ def main():
 
     args = parser.parse_args()
 
-    gpt_client = None
-    if args.useclaude:
-        if not args.apikey:
-            args.apikey = os.getenv('AWS_ACCESS_KEY_ID')
-        if not args.endpoint:
-            args.endpoint = "us-west-2"
-        if not args.deployment:
-            args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
-        gpt_client = ClaudeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
-    else:
-        if not args.apikey:
-            args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
-        if not args.endpoint:
-            args.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        if not args.deployment:
-            args.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-        gpt_client = GptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
-
+    gpt_client = GptClientFactory.new_client(args)
     solver = MergeConflictSolver(gpt_client, args.promptfile)
     applier = MergeConflictResolutionApplier(args.marginline)
 
@@ -332,7 +314,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
+                download_path = GerritUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():

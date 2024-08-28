@@ -1,0 +1,4 @@
+{
+  "system_prompt" : "You're the world class best programmer working with the upstream developers.",
+  "user_prompt": "Please check the following git diff result which is to solve merge conflict and please response just \"YES\" or \"NO\" as first line of your response\n\n- Please response YES if the git diff result is Ok to upload (git commit and git push).\n- Please response NO if you find still merge conflicting as you may find \"<<<<<<<\", \"=======\" and \">>>>>>>\".\n- Please response NO if you find any mistake of the git merge conflict resolution such as duplication, gramatically incorrect or build break, etc.\n\ngit diff result is:\n[GIT_DIFF]\n"
+}

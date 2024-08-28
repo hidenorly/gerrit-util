@@ -13,13 +13,10 @@
 #   limitations under the License.
 
 import os
-import subprocess
 import re
 import argparse
-import shutil
-from datetime import datetime, timedelta
-from gerrit_query import GerritUtil
-from gerrit_patch_downloader import GitUtil
+from GerritUtil import GerritUtil
+from GitUtil import GitUtil
 
 class ConflictExtractor:
     def __init__(self, path, margin_line_count=10, merge_overwrapped_conflict_section=True):
@@ -145,7 +142,7 @@ def main():
                 for key, value in _data.items():
                     print(f'{key}:{value}')
                 print("")
-                download_path = GitUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
+                download_path = GerritUtil.download(args.download, _data["number"], _data["patchset1_ssh"], args.renew)
                 conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
