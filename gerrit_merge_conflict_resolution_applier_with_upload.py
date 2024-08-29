@@ -59,8 +59,6 @@ class UploadableChecker:
 
         if self.client and system_prompt and user_prompt:
             try:
-                print(system_prompt)
-                print(user_prompt)
                 content, response = self.client.query(system_prompt, user_prompt)
             except:
                 pass
@@ -76,16 +74,14 @@ class UploadableChecker:
         if isinstance(diff_result, list):
             diff_result = "\n".join(diff_result)
 
-        print(f"{diff_result=}")
-
         system_prompt, user_prompt = self._generate_prompt({"[GIT_DIFF]":diff_result})
 
         while True:
             # 1st level
             content, response = self._query(system_prompt, user_prompt)
-            print(str(content))
             retry_count += 1
-            if content.strip().startswith(("YES","NO")) or retry_count>3:
+            review_result = str(content).strip().upper()
+            if "YES" in review_result or "NO" in review_result or retry_count>3:
                 break
             else:
                 print(f"ERROR!!!: LLM didn't expected anser. Retry:{retry_count}")
@@ -100,13 +96,11 @@ class UploadableChecker:
         if file_path.startswith(git_dir):
             file_path = file_path[len(git_dir)+1:]
 
-        print(f"{git_dir=}, {file_path=}")
-
         diff_result = GitUtil.diff(git_dir, f"HEAD {file_path}")
         content, response = self.query(diff_result)
         if content:
             content = content.strip().upper()
-            is_ok = True if content == "YES" else False
+            is_ok = True if "YES" in content else False
 
         return is_ok
 
@@ -155,62 +149,63 @@ def main():
                 conflict_detector = ConflictExtractor(download_path, args.marginline, args.largerconflictsection)
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
-                    print(file_name)
-                    target_file_lines = applier.read_file(file_name)
-                    _target_file_lines = []
+                    is_resolution_ok = False
+                    retry_count = 0
+                    while(not is_resolution_ok and retry_count<3):
+                        retry_count += 1
+                        print(f"{file_name} ({retry_count=}))")
+                        target_file_lines = applier.read_file(file_name)
+                        _target_file_lines = []
 
-                    # get resolutions for each conflicted area
-                    resolutions = []
-                    _resolutions = []
-                    resolution_section_mapper={}
-                    last_pos = 0
-                    for i,section in enumerate(sections):
-                        start_pos = section["start"]
-                        end_pos = section["end"]
-                        orig_start_pos = section["orig_start"]
-                        orig_end_pos = section["orig_end"]
-                        conflict_section_codes = section["section"]
-                        print(f'---conflict_section---{i} ({file_name})')
-                        print(conflict_section_codes)
-                        resolution, _full_response = solver.query(conflict_section_codes)
-                        print(f'---resolution---{i} ({file_name})')
-                        print(resolution)
-                        codes = applier.get_code_section(resolution)
-                        resolutions.extend( codes )
-                        for _code in codes:
-                            _code = str(_code)
-                            resolution_section_mapper[_code] = [start_pos, end_pos, orig_start_pos, orig_end_pos]
-                            if orig_start_pos!=None and orig_start_pos>=start_pos:
-                                resolution_section_mapper[_code].append(target_file_lines[start_pos:orig_start_pos+1])
+                        # get resolutions for each conflicted area
+                        resolutions = []
+                        _resolutions = []
+                        resolution_section_mapper={}
+                        last_pos = 0
+                        for i,section in enumerate(sections):
+                            start_pos = section["start"]
+                            end_pos = section["end"]
+                            orig_start_pos = section["orig_start"]
+                            orig_end_pos = section["orig_end"]
+                            conflict_section_codes = section["section"]
+                            print(f'---conflict_section---{i} ({file_name})')
+                            print(conflict_section_codes)
+                            resolution, _full_response = solver.query(conflict_section_codes)
+                            print(f'---resolution---{i} ({file_name})')
+                            print(resolution)
+                            codes = applier.get_code_section(resolution)
+                            resolutions.extend( codes )
+                            for _code in codes:
+                                _code = str(_code)
+                                resolution_section_mapper[_code] = [start_pos, end_pos, orig_start_pos, orig_end_pos]
+                                if orig_start_pos!=None and orig_start_pos>=start_pos:
+                                    resolution_section_mapper[_code].append(target_file_lines[start_pos:orig_start_pos+1])
+                                else:
+                                    resolution_section_mapper[_code].append([target_file_lines[start_pos]])
+                                if orig_end_pos!=None and orig_end_pos<=end_pos:
+                                    resolution_section_mapper[_code].append(target_file_lines[orig_end_pos:end_pos])
+                                else:
+                                    resolution_section_mapper[_code].append([target_file_lines[end_pos]])
+
+                        # apply resolutions for the file
+                        resolutions_lines = list(itertools.chain(*resolutions))
+                        target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions, resolution_section_mapper)
+                        if args.apply or args.upload:
+                            FileUtils.save_modified_code(file_name, target_file_lines)
+                            is_resolution_ok = checker.is_diff_ok(download_path, file_name)
+                            if is_resolution_ok:
+                                print(f"{file_name}'s git diff should be OK to git commit; git push")
                             else:
-                                resolution_section_mapper[_code].append([target_file_lines[start_pos]])
-                            if orig_end_pos!=None and orig_end_pos<=end_pos:
-                                resolution_section_mapper[_code].append(target_file_lines[orig_end_pos:end_pos])
-                            else:
-                                resolution_section_mapper[_code].append([target_file_lines[end_pos]])
+                                print(f"{file_name}'s git diff seems to be NOT OK to git commit; git push")
+                        else:
+                            is_resolution_ok = True # this means may include not complete resolution but it should be ok since it's not applied
+                    canUpLoad = canUpload and is_resolution_ok
 
-                    # apply resolutions for the file
-                    resolutions_lines = list(itertools.chain(*resolutions))
-                    target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions, resolution_section_mapper)
-                    _, is_modified_target_file_lines = applier.just_in_case_cleanup(target_file_lines)
-                    if is_modified_target_file_lines:
-                        print("!!!!ERROR!!!!: merge conflict IS NOT solved!!!! Should skip this file")
-                        canUpload = False
-                        #break
-                        #the following is for debug
-                        #target_file_lines = _
-
-                    #print(f'---resolved_full_file---{file_name}')
-                    #print('\n'.join(target_file_lines))
-                    if args.apply or args.upload:
-                        FileUtils.save_modified_code(file_name, target_file_lines)
-                        if not checker.is_diff_ok(download_path, file_name):
-                            print(f"{file_name}'s git diff seems to be NOT OK to git commit; git push")
-                            canUpload = False
-
-                if canUpload and args.upload:
-                    GerritUploader.upload(os.path.join(download_path, _data["project_dir"]), branch)
-                exit() # for debug
+                if args.upload:
+                    if canUpload:
+                        GerritUploader.upload(download_path, branch)
+                    else:
+                        print(f"{canUpload=}")
 
 
 if __name__ == "__main__":
