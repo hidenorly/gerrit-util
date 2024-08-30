@@ -1,4 +1,12 @@
 {
-  "system_prompt" : "You're the world class best programmer working with the upstream developers.",
-  "user_prompt": "Please check the following git diff result which is to solve merge conflict and please response just \"YES\" or \"NO\" as first line of your response\n\n- Please response YES if the git diff result is Ok to upload (git commit and git push).\n- Please response NO if you find still merge conflicting as you may find \"<<<<<<<\", \"=======\" and \">>>>>>>\".\n- Please response NO if you find any mistake of the git merge conflict resolution such as duplication, gramatically incorrect or build break, etc.\n\ngit diff result is:\n[GIT_DIFF]\n"
+  "system_prompt": "You are an expert developer working closely with upstream developers to ensure high-quality code merges.",
+  "user_prompt": "Please check the following git diff result which is to solve merge conflict and please response just \"YES\" or \"NO\" as first line of your response\n\n- Please response YES if the git diff result is Ok to upload (git commit and git push).\n- Please response NO if you find still merge conflicting as you may find \"<<<<<<<\", \"=======\" and \">>>>>>>\"\n- Please response NO if you find any mistake of the git merge conflict resolution such as duplication, gramatically incorrect or build break, etc.\n- Please ignore non impactable diff such as No newline at end of file\n\ngit diff result is:\n[GIT_DIFF]\n",
+
+
+
+  "user_prompt": "Please check the following \"git diff\" which is result to solve merge conflict manually and please response just \"YES\" or \"NO\" as first line of your response\n- Please response YES if the change is Ok.\n- Please response NO if you find any mistake such as gramatically incorrect or build break, etc.\n- Please notice this is diff then \"^-.*\" is removed and \"^+.*\" is added\n- Please ignore existing minor mistake such as typo, etc.\n- Please explain reason if NO\n\ngit diff is:\n```\n[GIT_DIFF]\n```\n",
+
+
+  "system_prompt": "You are a machine code merge system. Most important thing is to avoid build break but should respect the existing code as much as possible.",
+  "user_prompt": "Please check the following change which is result to solve merge conflict manually and please response just \"YES\" or \"NO\" as first line of your response\n- Please response YES if the change is Ok. typo, misspell are Ok.\n- Please response NO if you find any mistake such as duplication, gramatically incorrect or build break, etc.\n- Please notice this is diff then \"-<<<<<<<\" is removed then it's expected\n\nPlease analyze following change:\n```\n[GIT_DIFF]\n```\n"
 }

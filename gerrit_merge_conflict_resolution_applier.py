@@ -24,17 +24,12 @@ from GptHelper import GptClientFactory
 from gerrit_merge_conflict_extractor import ConflictExtractor
 from gerrit_merge_conflict_solver import MergeConflictSolver
 from ApplierUtil import ApplierUtil
+from FileUtil import FileUtil
 
 class MergeConflictResolutionApplier:
     def __init__(self, margin_line_count):
         self.margin_line_count = margin_line_count
         pass
-
-    def read_file(self, file_path):
-        lines = []
-        with open(file_path, 'r') as f:
-            lines = f.read().splitlines()
-        return lines
 
     def get_code_section(self, lines):
         results = []
@@ -219,7 +214,7 @@ class MergeConflictResolutionApplier:
             if flatten_replace_section_lines in resolutions_mapper:
                 info = resolutions_mapper[flatten_replace_section_lines]
             _replace_section_lines = self.clean_up_diff(replace_section_lines)
-            current_file_lines = ApplierUtil.replace_conflict_section(current_file_lines, _replace_section_lines, info)
+            current_file_lines = ApplierUtil.replace_conflict_section_ex(current_file_lines, _replace_section_lines, info)
             #print("\nRESOLVED CODE is ")
             #print("\n".join(current_file_lines))
         resolved_lines_as_replacer = current_file_lines
@@ -237,44 +232,6 @@ class MergeConflictResolutionApplier:
         # TODO: If not full, result should be None as failure...
 
         return result
-
-class FileUtils:
-    def get_file_line_end_code(file_path):
-        result = '\n'
-        if os.path.exists(file_path):
-            with open(file_path, 'rb') as file:
-                data = file.read()
-
-            newline_counts = {
-                '\n': 0,
-                '\r': 0,
-                '\r\n': 0
-            }
-
-            i = 0
-            _length = len(data)
-            while i < _length:
-                if data[i:i+2] == b'\r\n':
-                    newline_counts['\r\n'] += 1
-                    i += 2
-                    if i >= _length:
-                        break
-                elif data[i] == 0x0d:
-                    newline_counts['\r'] += 1
-                    i += 1
-                elif data[i] == 0x0a:
-                    newline_counts['\n'] += 1
-                    i += 1
-                else:
-                    i += 1
-
-            result = max(newline_counts, key=newline_counts.get)
-        return result
-
-    def save_modified_code(file_path, modified_lines):
-        line_end_code = FileUtils.get_file_line_end_code(file_path)
-        with open(file_path, 'w') as file:
-            file.write(line_end_code.join(modified_lines))
 
 
 def main():
@@ -319,7 +276,7 @@ def main():
                 conflict_sections = conflict_detector.get_conflicts()
                 for file_name, sections in conflict_sections.items():
                     print(file_name)
-                    target_file_lines = applier.read_file(file_name)
+                    target_file_lines = FileUtil.read_file(file_name)
                     _target_file_lines = []
 
                     # get resolutions for each conflicted area
@@ -365,7 +322,7 @@ def main():
                     #print(f'---resolved_full_file---{file_name}')
                     #print('\n'.join(target_file_lines))
                     if args.apply:
-                        FileUtils.save_modified_code(file_name, target_file_lines)
+                        FileUtil.save_modified_code(file_name, target_file_lines)
                 #exit()
 
 

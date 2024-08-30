@@ -25,7 +25,7 @@ from GptHelper import GptClientFactory, IGpt
 from gerrit_merge_conflict_extractor import ConflictExtractor
 from gerrit_merge_conflict_solver import MergeConflictSolver
 from gerrit_merge_conflict_resolution_applier import MergeConflictResolutionApplier
-from gerrit_merge_conflict_resolution_applier import FileUtils
+from FileUtil import FileUtil
 
 class GerritUploader:
     def upload(target_folder, branch):
@@ -75,6 +75,7 @@ class UploadableChecker:
             diff_result = "\n".join(diff_result)
 
         system_prompt, user_prompt = self._generate_prompt({"[GIT_DIFF]":diff_result})
+        #print(user_prompt)
 
         while True:
             # 1st level
@@ -89,18 +90,90 @@ class UploadableChecker:
 
         return content, response
 
+    def is_diff_available(self, diff_result):
+        result = []
+        for i, line in enumerate(diff_result):
+            if line.startswith("+++ b/"):
+                diff_result = diff_result[i+1:]
+                break
+        for i, line in enumerate(diff_result):
+            line = line.strip()
+            if line:
+                result.append(line)
+        result = "".join(result).strip()
+        return True if result else False
+
+    def get_non_diff_result(self, git_dir, file_path, margin_lines = 10):
+        results = ["The following is a part of changed code (non-diff):"]
+
+        # extract diff positions
+        diff_result = GitUtil.diff(git_dir, f"--ignore-space-at-eol --ignore-cr-at-eol {file_path}")
+        positions = []
+        for line in diff_result:
+            if line.startswith("@@ "):
+                start_pos = None
+                line_count = None
+                pos = line.find("+")
+                if pos:
+                    line = line[pos+1:]
+                pos = line.find(",")
+                if pos:
+                    start_pos = line[:pos]
+                    line = line[pos+1:]
+                pos = line.find(" @@ ")
+                if pos:
+                    line_count = line[:pos]
+                if start_pos and line_count:
+                    try:
+                        positions.append([int(start_pos), int(line_count)])
+                    except:
+                        pass
+
+        target_file_lines = FileUtil.read_file(os.path.join(git_dir, file_path))
+        target_file_lines_length = len(target_file_lines)
+        for pos in positions:
+            start_pos = max(pos[0]-margin_lines, 0)
+            end_pos = min(pos[0]+pos[1]+margin_lines, target_file_lines_length)
+            results = results + ["", "..snip.."] + target_file_lines[start_pos:end_pos] + ["..snip..",""]
+
+        return results
+
+    def is_diff_marker_included(self, git_dir, file_path):
+        target_file_lines = FileUtil.read_file(os.path.join(git_dir, file_path))
+        for line in target_file_lines:
+            line=line.strip()
+            if line.startswith(("<<<<<<< ", "=======", ">>>>>>> ")):
+                return True
+        return False
+
+    def _check_change(self, lines):
+        is_ok = False
+        if self.is_diff_available(lines):
+            content, response = self.query(lines)
+            print(content)
+            if content:
+                content = content.strip().upper()
+                is_ok = True if "YES" in content else False
+        else:
+            is_ok = True
+        return is_ok
 
     def is_diff_ok(self, git_dir, file_path):
-        is_ok = False
-
         if file_path.startswith(git_dir):
             file_path = file_path[len(git_dir)+1:]
 
-        diff_result = GitUtil.diff(git_dir, f"HEAD {file_path}")
-        content, response = self.query(diff_result)
-        if content:
-            content = content.strip().upper()
-            is_ok = True if "YES" in content else False
+        is_ok = self.is_diff_marker_included(git_dir, file_path)
+        if is_ok:
+            # Not found the conflict marker
+            # --- Try to check with git diff
+            diff_result = GitUtil.diff(git_dir, f"--ignore-space-at-eol --ignore-cr-at-eol {file_path}")
+            is_ok = self._check_change(diff_result)
+
+            # --- Try to check with non-diff (Fallback for LMM's confusion)
+            if not is_ok:
+                print("try with non-diff...")
+                non_diff_result = self.get_non_diff_result(git_dir, file_path)
+                is_ok = self._check_change(non_diff_result)
 
         return is_ok
 
@@ -133,7 +206,8 @@ def main():
     gpt_client = GptClientFactory.new_client(args)
     solver = MergeConflictSolver(gpt_client, args.promptfile)
     applier = MergeConflictResolutionApplier(args.marginline)
-    checker = UploadableChecker(gpt_client)
+    args.useclaude=True
+    checker = UploadableChecker( GptClientFactory.new_client(args) ) #gpt_client)
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
     for project, data in result.items():
@@ -151,12 +225,12 @@ def main():
                 for file_name, sections in conflict_sections.items():
                     is_resolution_ok = False
                     retry_count = 0
+                    target_file_lines_orig = FileUtil.read_file(file_name)
                     while(not is_resolution_ok and retry_count<3):
                         retry_count += 1
                         print(f"{file_name} ({retry_count=}))")
-                        target_file_lines = applier.read_file(file_name)
                         _target_file_lines = []
-
+                        target_file_lines = target_file_lines_orig.copy()
                         # get resolutions for each conflicted area
                         resolutions = []
                         _resolutions = []
@@ -169,7 +243,10 @@ def main():
                             orig_end_pos = section["orig_end"]
                             conflict_section_codes = section["section"]
                             print(f'---conflict_section---{i} ({file_name})')
-                            print(conflict_section_codes)
+                            if len(conflict_section_codes)>300:
+                                print(conflict_section_codes[0:300]+"\n..snip..")
+                            else:
+                                print(conflict_section_codes)
                             resolution, _full_response = solver.query(conflict_section_codes)
                             print(f'---resolution---{i} ({file_name})')
                             print(resolution)
@@ -191,14 +268,17 @@ def main():
                         resolutions_lines = list(itertools.chain(*resolutions))
                         target_file_lines = applier.solve_merge_conflict(target_file_lines, sections, resolutions_lines, resolutions, resolution_section_mapper)
                         if args.apply or args.upload:
-                            FileUtils.save_modified_code(file_name, target_file_lines)
+                            FileUtil.save_modified_code(file_name, target_file_lines)
                             is_resolution_ok = checker.is_diff_ok(download_path, file_name)
                             if is_resolution_ok:
                                 print(f"{file_name}'s git diff should be OK to git commit; git push")
+                                break
                             else:
                                 print(f"{file_name}'s git diff seems to be NOT OK to git commit; git push")
+                                # will retry
                         else:
                             is_resolution_ok = True # this means may include not complete resolution but it should be ok since it's not applied
+                            break
                     canUpLoad = canUpload and is_resolution_ok
 
                 if args.upload:
