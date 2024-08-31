@@ -199,6 +199,68 @@ class ApplierUtil:
 
         return start_index, end_index, margined_start_index, margined_end_index
 
+
+    def _find_forward(input_src_lines, replace_lines, input_start_index, replace_start_index):
+        new_replace_index = None
+        new_input_index = None
+
+        is_found = False
+        found_count = 0
+        for replace_index in range(replace_start_index, len(replace_lines)):
+            _replace_line = replace_lines[replace_index].split()
+            _is_found = False
+            for input_index in range(input_start_index, len(input_src_lines)):
+                _input_line = input_src_lines[input_index].split()
+                if _input_line == _replace_line:
+                    is_found = True
+                    _is_found = True
+                    new_replace_index = replace_index
+                    new_input_index = input_index
+                    found_count += 1
+                    break
+            if not _is_found and is_found:
+                break
+
+        if not is_found or found_count<2:
+            new_replace_index = None
+            new_input_index = None
+
+        return new_input_index, new_replace_index
+
+    def _find_reverse(input_src_lines, replace_lines, input_start_index, replace_start_index):
+        new_replace_index = None
+        new_input_index = None
+
+        replace_lines_length = len(replace_lines)
+        input_src_lines_length = len(input_src_lines)
+        replace_start_index = min(replace_lines_length, replace_start_index)
+        input_start_index = min(input_src_lines_length, input_start_index)
+
+        is_found = False
+        found_count = 0
+        for i in range(1, replace_start_index+1):
+            replace_index = replace_start_index - i
+            _replace_line = replace_lines[replace_index].split()
+            _is_found = False
+            for m in range(1, input_start_index+1):
+                input_index = input_start_index - m
+                _input_line = input_src_lines[input_index].split()
+                if _input_line == _replace_line:
+                    is_found = True
+                    _is_found = True
+                    new_replace_index = replace_index
+                    new_input_index = input_index
+                    found_count += 1
+                    break
+            if not _is_found and is_found:
+                break
+
+        if not is_found or found_count<2:
+            new_replace_index = None
+            new_input_index = None
+
+        return new_input_index, new_replace_index
+
     def _replace_conflict_section(input_src_lines, replace_lines, info = None):
         start_index, end_index, pre_margin_index, post_margin_index = ApplierUtil._search_start_end_pos(input_src_lines, info)
         print(f"[ApplierUtil]:start_index={start_index}, end_index={end_index}")
@@ -210,13 +272,15 @@ class ApplierUtil:
             return input_src_lines, replace_lines, True
 
         if pre_margin_index!=None and post_margin_index!=None and pre_margin_index<start_index and end_index<post_margin_index:
-            input_src_lines_length = len(input_src_lines)
-            replace_lines_length = len(replace_lines)
-            if input_src_lines_length and replace_lines_length and input_src_lines[min(pre_margin_index+1, input_src_lines_length)].split() == replace_lines[0].split() and input_src_lines[max(post_margin_index-1,0)].split() == replace_lines[replace_lines_length].split():
+
+            post_margin_index, replace_end_index = ApplierUtil._find_reverse(input_src_lines, replace_lines, post_margin_index, len(replace_lines))
+            pre_margin_index, replace_start_index = ApplierUtil._find_forward(input_src_lines, replace_lines, start_index, 0)
+
+            if replace_start_index!=None and replace_end_index!=None and pre_margin_index!=None and post_margin_index!=None and pre_margin_index<post_margin_index and replace_start_index<replace_end_index:
                 # Replace the conflict section with the resolved lines
                 output_lines = (
                     input_src_lines[:pre_margin_index] +
-                    replace_lines +
+                    replace_lines[replace_start_index:replace_end_index] +
                     input_src_lines[post_margin_index:]
                 )
                 print(f"[ApplierUtil]:SUCCESS to replace (FULL REPLACE)")
