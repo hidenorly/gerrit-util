@@ -72,6 +72,8 @@ class GerritUtil:
                 }
                 if "currentPatchSet" in data and "comments" in data["currentPatchSet"]:
                     _comments = data["currentPatchSet"]["comments"]
+                    current_patch_set_ref = data["currentPatchSet"]["ref"]
+                    theData["current_patchset_ssh"] = f'git clone {url[0:pos]}/{project} -b {branch}; cd {project_dir}; git pull {url[0:pos]}/{project} {current_patch_set_ref} --rebase'
                     comments = theData["comments"]
                     for comment in _comments:
                         filename = comment["file"]
@@ -147,3 +149,13 @@ class GerritUtil:
         current_dir = ExecUtil.exec_cmd_with_cd(download_cmd, target_folder)
 
         return current_dir
+
+    @staticmethod
+    def upload(target_folder, branch):
+        upload_cmd = f"git add *; git commit --amend --no-edit; git push origin HEAD:refs/for/{branch}"
+
+        # check the target_folder is git folder
+        if os.path.exists(os.path.join(target_folder+"/.git")):
+            ExecUtil.exec_cmd_with_cd(upload_cmd, target_folder)
+
+        return target_folder

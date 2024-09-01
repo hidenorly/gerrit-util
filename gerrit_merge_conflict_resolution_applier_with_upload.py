@@ -27,15 +27,6 @@ from gerrit_merge_conflict_solver import MergeConflictSolver
 from gerrit_merge_conflict_resolution_applier import MergeConflictResolutionApplier
 from FileUtil import FileUtil
 
-class GerritUploader:
-    def upload(target_folder, branch):
-        upload_cmd = f"git add *; git commit --amend --no-edit; git push origin HEAD:refs/for/{branch}"
-
-        # check the target_folder is git folder
-        if os.path.exists(os.path.join(target_folder+"/.git")):
-            ExecUtil.exec_cmd_with_cd(upload_cmd, target_folder)
-
-        return target_folder
 
 class UploadableChecker:
     PROMPT_FILE = os.path.join(os.path.dirname(__file__), "git_merge_resolved_checker.json")
@@ -283,7 +274,7 @@ def main():
 
                 if args.upload:
                     if canUpload:
-                        GerritUploader.upload(download_path, branch)
+                        GerritUtil.upload(download_path, branch)
                     else:
                         print(f"{canUpload=}")
 
