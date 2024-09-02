@@ -70,24 +70,26 @@ class GerritUtil:
                     "patchset1_repo": f'repo download {project} {id}/1',
                     "comments": {}
                 }
-                if "currentPatchSet" in data and "comments" in data["currentPatchSet"]:
-                    _comments = data["currentPatchSet"]["comments"]
+                if "currentPatchSet" in data and "ref" in data["currentPatchSet"]:
                     current_patch_set_ref = data["currentPatchSet"]["ref"]
                     theData["current_patchset_ssh"] = f'git clone {url[0:pos]}/{project} -b {branch}; cd {project_dir}; git pull {url[0:pos]}/{project} {current_patch_set_ref} --rebase'
-                    comments = theData["comments"]
-                    for comment in _comments:
-                        filename = comment["file"]
-                        if not filename in comments:
-                            comments[filename] = {}
-                        line = comment["line"]
-                        if not line in comments[filename]:
-                            comments[filename][line] = []
-                        comments[filename][line].append(
-                            {
-                                "message": comment["message"],
-                                "reviewer": comment["reviewer"]
-                            }
-                        )
+
+                    if "comments" in data["currentPatchSet"]:
+                        _comments = data["currentPatchSet"]["comments"]
+                        comments = theData["comments"]
+                        for comment in _comments:
+                            filename = comment["file"]
+                            if not filename in comments:
+                                comments[filename] = {}
+                            line = comment["line"]
+                            if not line in comments[filename]:
+                                comments[filename][line] = []
+                            comments[filename][line].append(
+                                {
+                                    "message": comment["message"],
+                                    "reviewer": comment["reviewer"]
+                                }
+                            )
 
 
         except json.JSONDecodeError:

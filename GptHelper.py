@@ -167,3 +167,60 @@ class GptClientFactory:
             gpt_client = OpenAIGptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
 
         return gpt_client
+
+
+
+class GptQueryWithCheck:
+    def __init__(self, client=None, promptfile=None):
+        self.client = client
+        self.system_prompt = None
+        self.user_prompt = None
+        if promptfile:
+            self.system_prompt, self.user_prompt = IGpt.read_prompt_json(promptfile)
+
+    def _generate_prompt(self, replace_keydata={}):
+        system_prompt = self.system_prompt
+        user_prompt = self.user_prompt
+
+        for replace_keyword, replace_data in replace_keydata.items():
+            user_prompt = user_prompt.replace(replace_keyword, replace_data)
+
+        return system_prompt, user_prompt
+
+    def _query(self, system_prompt, user_prompt):
+        content = None
+        response = None
+
+        if self.client and system_prompt and user_prompt:
+            try:
+                content, response = self.client.query(system_prompt, user_prompt)
+            except:
+                pass
+            return content, response
+
+        return None, None
+
+    def is_ok_query_result(self, query_result):
+        if not query_result:
+            # TODO: override this to check the query_result
+            return False
+        return True
+
+    def query(self, replace_keydata={}):
+        content = None
+        response = None
+
+        system_prompt, user_prompt = self._generate_prompt(replace_keydata)
+
+        retry_count = 0
+        while retry_count<3:
+            # 1st level
+            content, response = self._query(system_prompt, user_prompt)
+            retry_count += 1
+            if self.is_ok_query_result(content):
+                break
+            else:
+                print(f"ERROR!!!: LLM didn't expected anser. Retry:{retry_count}")
+                print(content)
+
+        return content, response
