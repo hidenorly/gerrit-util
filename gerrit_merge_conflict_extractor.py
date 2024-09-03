@@ -91,6 +91,8 @@ class ConflictExtractor:
                     _original_conflict_end = conflict_end
                 if conflict_end is not None:
                     conflict_end = self._find_margin_without_another_conflict_section_backward(lines, conflict_end, line_counts)
+                    # conflict_start(0) / conflict_end(1) : including margin line
+                    # _original_conflict_start(2) / _original_conflict_end(3) :  from <<<<<<< ~ >>>>>>>
                     conflict_section_pos.append([conflict_start, conflict_end, _original_conflict_start, _original_conflict_end])
                     _original_conflict_start = None
                     _original_conflict_end = None

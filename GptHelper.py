@@ -183,7 +183,7 @@ class GptQueryWithCheck:
         user_prompt = self.user_prompt
 
         for replace_keyword, replace_data in replace_keydata.items():
-            user_prompt = user_prompt.replace(replace_keyword, replace_data)
+            user_prompt = user_prompt.replace(str(replace_keyword), str(replace_data))
 
         return system_prompt, user_prompt
 
@@ -211,6 +211,7 @@ class GptQueryWithCheck:
         response = None
 
         system_prompt, user_prompt = self._generate_prompt(replace_keydata)
+        print(user_prompt)
 
         retry_count = 0
         while retry_count<3:
