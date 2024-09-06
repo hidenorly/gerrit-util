@@ -1,0 +1,4 @@
+{
+  "system_prompt": "You are working with colleagues as pair programming and communication with code review system.",
+  "user_prompt": "Please check the following reviewer's comment and please change the code to satisfy with the reviewer's mention. And please output the modified code.\n\nReviewer's comment:\n[COMMENT]\n\nMentioned code (the comment is intended to the #[RELATIVE_POSITION] line):\n```\n[TARGET_LINES]\n```\n"
+}
