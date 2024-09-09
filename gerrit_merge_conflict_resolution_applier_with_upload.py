@@ -182,9 +182,10 @@ def main():
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
     parser.add_argument('-l', '--largerconflictsection', default=False, action='store_true', help='Specify if unify overwrapped sections')
 
-    parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3')
+    parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3 (force to use claude3 for option backward compatibiliy)')
+    parser.add_argument('-g', '--gpt', action='store', default="openai", help='specify openai or calude3 or openaicompatible')
     parser.add_argument('-k', '--apikey', action='store', default=None, help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
-    parser.add_argument('-y', '--secretkey', action='store', default=os.getenv("AWS_SECRET_ACCESS_KEY"), help='specify your secret key or set it in AWS_SECRET_ACCESS_KEY env (for claude3)')
+    parser.add_argument('-y', '--secretkey', action='store', default=None, help='specify your secret key or set it in AWS_SECRET_ACCESS_KEY env (for claude3)')
     parser.add_argument('-e', '--endpoint', action='store', default=None, help='specify your end point or set it in AZURE_OPENAI_ENDPOINT env')
     parser.add_argument('-d', '--deployment', action='store', default=None, help='specify deployment name or set it in AZURE_OPENAI_DEPLOYMENT_NAME env')
     parser.add_argument('-p', '--promptfile', action='store', default="./git_merge_conflict_resolution_for_upstream_integration.json", help='specify prompt.json')
@@ -197,7 +198,8 @@ def main():
     gpt_client = GptClientFactory.new_client(args)
     solver = MergeConflictSolver(gpt_client, args.promptfile)
     applier = MergeConflictResolutionApplier(args.marginline)
-    args.useclaude=True
+    args.useclaude=True if not args.apikey and not args.endpoint and not args.deployment else False
+    print(f"UploadableChecker:{args.useclaude=}")
     checker = UploadableChecker( GptClientFactory.new_client(args) ) #gpt_client)
 
     result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))

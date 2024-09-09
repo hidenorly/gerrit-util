@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import json
+import requests
 from openai import AzureOpenAI
 import logging
 import boto3
@@ -78,6 +79,76 @@ class OpenAIGptHelper(IGpt):
             messages = _messages
         )
         return response.choices[0].message.content, response
+
+
+
+class OpenAICompatibleGptHelper(IGpt):
+    def __init__(self, api_key, endpoint, model=None, is_streaming = False):
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.model = model
+        self.is_streaming = is_streaming
+
+    def _create_header_and_payload(self, messages):
+        # headers
+        headers = {
+            'accept': 'application/json',
+            'Content-Type': 'application/json',
+        }
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+
+        # payload
+        payload = {
+            "messages": messages,
+        }
+        if self.is_streaming:
+            payload["stream"] = True
+        if self.model:
+            payload["model"] = self.model
+
+        return headers, payload
+
+    def query(self, system_prompt, user_prompt):
+        _messages = []
+        if system_prompt:
+            _messages.append( {"role": "system", "content": system_prompt} )
+        if user_prompt:
+            _messages.append( {"role": "user", "content": user_prompt} )
+
+        headers, payload  = self._create_header_and_payload(_messages)
+
+        if self.is_streaming:
+            # streaming mode (ollama mode)
+            r = requests.post(self.endpoint, headers=headers, json=payload, stream=True)
+            r.raise_for_status()
+            output = ""
+            for line in r.iter_lines():
+                body = json.loads(line)
+                if "error" in body:
+                    raise Exception(body["error"])
+                if body.get("done") is False:
+                    message = body.get("message", "")
+                    content = message.get("content", "")
+                    output += content
+
+                if body.get("done", False):
+                    message = body
+                    message["content"] = output
+                    return output, message
+
+        else:
+            # non-streaming mode
+            response = requests.post(self.endpoint, headers=headers, json=payload)
+            if response.status_code == 200:
+                response_json = response.json()
+                main_message = response_json['choices'][0]['message']['content']
+                return main_message, response_json
+            else:
+                raise Exception(f"Error: {response.status_code} - {response.text}")
+
+        return None, None
+
 
 
 class ClaudeGptHelper(IGpt):
@@ -149,22 +220,23 @@ class GptClientFactory:
     def new_client(args):
         gpt_client = None
 
-        if args.useclaude:
-            if not args.apikey:
-                args.apikey = os.getenv('AWS_ACCESS_KEY_ID')
-            if not args.endpoint:
-                args.endpoint = "us-west-2"
-            if not args.deployment:
-                args.deployment = "anthropic.claude-3-sonnet-20240229-v1:0"
-            gpt_client = ClaudeGptHelper(args.apikey, args.secretkey, args.endpoint, args.deployment)
+        if args.useclaude or args.gpt=="calude3":
+            apikey = os.getenv('AWS_ACCESS_KEY_ID') if not args.apikey else args.apikey
+            endpoint = "us-west-2" if not args.endpoint else args.endpoint
+            deployment = "anthropic.claude-3-sonnet-20240229-v1:0" if not args.deployment else args.deployment
+            secretkey = os.getenv("AWS_SECRET_ACCESS_KEY") if not args.secretkey else args.secretkey
+            gpt_client = ClaudeGptHelper(apikey, secretkey, endpoint, deployment)
+        elif args.gpt=="openaicompatible" or args.gpt=="local" or args.gpt=="others":
+            apikey = os.getenv("LLM_API_KEY") if not args.apikey else args.apikey
+            endpoint = os.getenv("LLM_ENDPOINT") if not args.endpoint else args.endpoint
+            deployment = os.getenv("LLM_DEPLOYMENT_NAME") if not args.deployment else args.deployment
+            is_streaming = True if "/api/chat" in endpoint else False
+            gpt_client = OpenAICompatibleGptHelper(apikey, endpoint, deployment, is_streaming)
         else:
-            if not args.apikey:
-                args.apikey = os.getenv("AZURE_OPENAI_API_KEY")
-            if not args.endpoint:
-                args.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-            if not args.deployment:
-                args.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-            gpt_client = OpenAIGptHelper(args.apikey, args.endpoint, "2024-02-01", args.deployment)
+            apikey = os.getenv("AZURE_OPENAI_API_KEY") if not args.apikey else args.apikey
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") if not args.endpoint else args.endpoint
+            deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") if not args.deployment else args.deployment
+            gpt_client = OpenAIGptHelper(apikey, endpoint, "2024-02-01", deployment)
 
         return gpt_client
 
