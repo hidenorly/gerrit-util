@@ -44,10 +44,7 @@ class MergeConflictSolver:
         response = None
 
         if self.client and system_prompt and user_prompt:
-            try:
-                content, response = self.client.query(system_prompt, user_prompt)
-            except:
-                pass
+            content, response = self.client.query(system_prompt, user_prompt)
             return content, response
 
         return None, None
