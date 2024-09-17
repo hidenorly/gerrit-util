@@ -48,3 +48,23 @@ options:
                         file
   -u, --upload          Specify if upload the the conflict resolved result
 ```
+
+## Use Claude3, margin 10 lines, apply the resolution, Specifying the prompt
+
+```
+python3 gerrit_merge_conflict_resolution_applier_with_upload.py -n ChangeNumber -a -r -m 10 -c -p git_merge_conflict_resolution_for_upstream_integration_keep_downstream.json -l -u
+```
+
+## Use OpenAI Compatible LLM, margin 3 lines, apply the resolution, Specifying the prompt
+
+```
+python3 gerrit_merge_conflict_resolution_applier_with_upload.py -n ChangeNumber -a --gpt="local" -r -m 3 -p git_merge_conflict_resolution_for_upstream_integration_keep_downstream.json 
+```
+
+## Use oolama with codegemma
+
+```
+ollama run codegemma
+
+python3 gerrit_merge_conflict_resolution_applier_with_upload.py -n ChangeNumber -a --gpt="local" -r -m 3 -p git_merge_conflict_resolution_for_upstream_integration_keep_downstream.json -e "http://localhost:11434/api/chat" -d "codegemma"
+```
