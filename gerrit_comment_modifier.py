@@ -60,6 +60,7 @@ def main():
     parser.add_argument('-m', '--marginline', default=10, type=int, action='store', help='Specify margin lines')
 
     parser.add_argument('-c', '--useclaude', action='store_true', default=False, help='specify if you want to use calude3')
+    parser.add_argument('-g', '--gpt', action='store', default="openai", help='specify openai or calude3 or openaicompatible')
     parser.add_argument('-k', '--apikey', action='store', default=None, help='specify your API key or set it in AZURE_OPENAI_API_KEY env')
     parser.add_argument('-y', '--secretkey', action='store', default=os.getenv("AWS_SECRET_ACCESS_KEY"), help='specify your secret key or set it in AWS_SECRET_ACCESS_KEY env (for claude3)')
     parser.add_argument('-e', '--endpoint', action='store', default=None, help='specify your end point or set it in AZURE_OPENAI_ENDPOINT env')
