@@ -13,6 +13,7 @@
 #   limitations under the License.
 
 import os
+import re
 import subprocess
 import json
 import shutil
@@ -99,7 +100,7 @@ class GerritUtil:
 
 
     @staticmethod
-    def query(ssh_target_host, branch, status, since, numbers, extra_commands=[]):
+    def query(ssh_target_host, branch, status, since, numbers, extra_commands=[], connection="http"):
         result = {}
         status_query = ' OR '.join(f'status:{s}' for s in status.split('|'))
         since_date = GerritUtil.parse_since(since)
@@ -132,6 +133,12 @@ class GerritUtil:
                     result[project] = {}
                 if not branch in result[project]:
                     result[project][branch] = []
+
+                if "current_patchset_ssh" in theData:
+                    current_patchset_ssh = theData["current_patchset_ssh"]
+                    if not connection in current_patchset_ssh:
+                        # mismatch case
+                        theData["current_patchset_ssh"] = re.sub(r'http://[^/]+/', "ssh://"+ssh_target_host + '/', current_patchset_ssh)
                 result[project][branch].append(theData)
 
         return result

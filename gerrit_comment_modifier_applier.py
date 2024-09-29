@@ -13,7 +13,6 @@
 #   limitations under the License.
 
 import os
-import re
 import argparse
 from GerritUtil import GerritUtil
 from GitUtil import GitUtil
@@ -227,12 +226,14 @@ class ResolutionApplier:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Extract merge conflict for downloaded gerrit patch')
+    parser = argparse.ArgumentParser(description='Gerrit comment AI helper')
     parser.add_argument('-t', '--target', default=os.getenv("GERRIT_HOST", 'gerrit-ssh'), help='Specify ssh target host')
     parser.add_argument('-b', '--branch', default=os.getenv("GERRIT_BRANCH", 'main'), help='Branch to query')
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
+
+    parser.add_argument('--connection', default="http", action='store', help='Specify ssh or http')
 
     parser.add_argument('-w', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
@@ -251,7 +252,7 @@ def main():
 
     args = parser.parse_args()
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","), ["--comments", "--current-patch-set"])
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","), ["--comments", "--current-patch-set"], args.connection)
 
     gpt_client = GptClientFactory.new_client(args)
     modifier = ModifierWithLLM(gpt_client, args.promptfile)
