@@ -139,6 +139,11 @@ class GerritUtil:
                     if not connection in current_patchset_ssh:
                         # mismatch case
                         theData["current_patchset_ssh"] = re.sub(r'http://[^/]+/', "ssh://"+ssh_target_host + '/', current_patchset_ssh)
+                if "patchset1_ssh" in theData:
+                    patchset1_ssh = theData["patchset1_ssh"]
+                    if not connection in patchset1_ssh:
+                        # mismatch case
+                        theData["patchset1_ssh"] = re.sub(r'http://[^/]+/', "ssh://"+ssh_target_host + '/', patchset1_ssh)
                 result[project][branch].append(theData)
 
         return result
