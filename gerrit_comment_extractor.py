@@ -28,7 +28,7 @@ class CommentExtractor:
     def get_margined_lines(self, file_lines, pos):
         start_pos = max(0, pos - self.margin_line_count)
         end_pos = min(pos + self.margin_line_count, len(file_lines))
-        return file_lines[start_pos:end_pos], pos-start_pos, file_lines[pos], start_pos, end_pos
+        return file_lines[start_pos:end_pos], pos-start_pos, file_lines[max(0,pos-1)], start_pos, end_pos
 
     def _remove_comments(self, input_comments, exclude_filename, exclude_line_number, exclude_target_pos):
         result_comments = {}
