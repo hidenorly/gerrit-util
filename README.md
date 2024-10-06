@@ -10,7 +10,11 @@ Utilities for gerrit.
 
 * Note that ApplierUtil is under PoC then it's needed to be improved. Please contribute to improve.
 
-# comment query
+# gerrit comment utility
+
+# This is an early PoC level.
+
+## comment query
 
 ````
 $ python3 gerrit_comment_query.py --help
@@ -31,7 +35,7 @@ options:
                         Specify gerrit numbers with ,
 ```
 
-# modify as comment
+## modify as comment
 
 ```
 python3 gerrit_comment_modifier_applier.py --help                                                          
