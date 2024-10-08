@@ -100,10 +100,12 @@ class GerritUtil:
 
 
     @staticmethod
-    def query(ssh_target_host, branch, status, since, numbers, extra_commands=[], connection="http"):
+    def query(ssh_target_host, branch, status, since, numbers, extra_commands=[], connection="http", filter_git=None):
         result = {}
         status_query = ' OR '.join(f'status:{s}' for s in status.split('|'))
         since_date = GerritUtil.parse_since(since)
+        if filter_git:
+            filter_git=re.compile(filter_git)
 
         cmd = [
             'ssh', ssh_target_host, 'gerrit', 'query', '--format=json'
@@ -128,7 +130,7 @@ class GerritUtil:
         
         for line in _result.stdout.splitlines():
             project, branch, theData = GerritUtil._parse_gerrt_result(line)
-            if project:
+            if project and (filter_git==None or filter_git.match(project)):
                 if not project in result:
                     result[project] = {}
                 if not branch in result[project]:
