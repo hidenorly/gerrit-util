@@ -23,9 +23,10 @@ def main():
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
+    parser.add_argument('-g', '--gitpath', default=None, action='store', help='Specify regexp for project(gitpath) if necessary')
     args = parser.parse_args()
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","), [], "http", args.gitpath)
     for project, data in result.items():
         for branch, theData in data.items():
             for _data in theData:

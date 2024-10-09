@@ -130,7 +130,7 @@ class GerritUtil:
         
         for line in _result.stdout.splitlines():
             project, branch, theData = GerritUtil._parse_gerrt_result(line)
-            if project and (filter_git==None or filter_git.match(project)):
+            if project and (not filter_git or filter_git.match(project)):
                 if not project in result:
                     result[project] = {}
                 if not branch in result[project]:
