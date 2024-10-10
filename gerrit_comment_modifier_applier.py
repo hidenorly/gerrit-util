@@ -232,6 +232,7 @@ def main():
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
+    parser.add_argument('--gitpath', default=None, action='store', help='Specify regexp for project(gitpath) if necessary')
 
     parser.add_argument('--connection', default="http", action='store', help='Specify ssh or http')
 
@@ -252,7 +253,7 @@ def main():
 
     args = parser.parse_args()
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","), ["--comments", "--current-patch-set"], args.connection)
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","), ["--comments", "--current-patch-set"], args.connection, args.gitpath)
 
     gpt_client = GptClientFactory.new_client(args)
     modifier = ModifierWithLLM(gpt_client, args.promptfile)
