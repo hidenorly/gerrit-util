@@ -128,6 +128,9 @@ def main():
     parser.add_argument('-s', '--status', default='merged|open', help='Status to query (merged|open)')
     parser.add_argument('--since', default='1 week ago', help='Since when to query')
     parser.add_argument('-n', '--numbers', default="", action='store', help='Specify gerrit numbers with ,')
+    parser.add_argument('--gitpath', default=None, action='store', help='Specify regexp for project(gitpath) if necessary')
+
+    parser.add_argument('--connection', default="http", action='store', help='Specify ssh or http')
 
     parser.add_argument('-d', '--download', default='.', help='Specify download path')
     parser.add_argument('-r', '--renew', default=False, action='store_true', help='Specify if re-download anyway')
@@ -135,7 +138,7 @@ def main():
     parser.add_argument('-l', '--largerconflictsection', default=False, action='store_true', help='Specify if unify overwrapped sections')
     args = parser.parse_args()
 
-    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","))
+    result = GerritUtil.query(args.target, args.branch, args.status, args.since, args.numbers.split(","), [], args.connection, args.gitpath)
     for project, data in result.items():
         for branch, theData in data.items():
             for _data in theData:
