@@ -191,6 +191,8 @@ def main():
     parser.add_argument('-y', '--secretkey', action='store', default=None, help='specify your secret key or set it in AWS_SECRET_ACCESS_KEY env (for claude3)')
     parser.add_argument('-e', '--endpoint', action='store', default=None, help='specify your end point or set it in AZURE_OPENAI_ENDPOINT env')
     parser.add_argument('-d', '--deployment', action='store', default=None, help='specify deployment name or set it in AZURE_OPENAI_DEPLOYMENT_NAME env')
+    parser.add_argument('-H', '--header', action='append', default=[], help='Specify headers for http e.g. header_key:value (multiple --header are ok)')
+
     parser.add_argument('-p', '--promptfile', action='store', default="./git_merge_conflict_resolution_for_upstream_integration.json", help='specify prompt.json')
 
     parser.add_argument('-a', '--apply', action='store_true', default=False, help='Specify if apply the modification for the conflicted file')
